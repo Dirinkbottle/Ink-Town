@@ -200,6 +200,13 @@ fn default_registry_dir() -> PathBuf {
         .join("registry")
 }
 
+fn sibling_registry_dir(world_dir: &Path) -> PathBuf {
+    world_dir
+        .parent()
+        .unwrap_or(world_dir)
+        .join("registry")
+}
+
 fn load_registry_from_dir(registry_dir: &Path) -> Result<RegistrySnapshot, AppError> {
     let registry_text = fs::read_to_string(registry_dir.join("registry.json"))?;
     let config: RegistryConfig = serde_json::from_str(&registry_text)?;
@@ -227,6 +234,46 @@ fn load_registry_from_dir(registry_dir: &Path) -> Result<RegistrySnapshot, AppEr
         value_sets: value_sets.value_sets,
         schema,
     })
+}
+
+fn load_builtin_registry() -> Result<RegistrySnapshot, AppError> {
+    let config_text = include_str!("../../data/registry/registry.json");
+    let config: RegistryConfig = serde_json::from_str(config_text)?;
+
+    let materials_text = include_str!("../../data/registry/materials.json");
+    let attributes_text = include_str!("../../data/registry/attributes.json");
+    let value_sets_text = include_str!("../../data/registry/value_sets.json");
+    let schema_text = include_str!("../../data/registry/pixel.schema.json");
+
+    let materials: MaterialsFile = serde_json::from_str(materials_text)?;
+    let attributes: AttributesFile = serde_json::from_str(attributes_text)?;
+    let value_sets: ValueSetsFile = serde_json::from_str(value_sets_text)?;
+    let schema: Value = serde_json::from_str(schema_text)?;
+
+    Ok(RegistrySnapshot {
+        version: config.version,
+        materials: materials.materials,
+        attributes: attributes.attributes,
+        value_sets: value_sets.value_sets,
+        schema,
+    })
+}
+
+fn load_registry_best_effort(preferred_dir: &Path) -> Result<RegistrySnapshot, AppError> {
+    if preferred_dir.exists() {
+        if let Ok(snapshot) = load_registry_from_dir(preferred_dir) {
+            return Ok(snapshot);
+        }
+    }
+
+    let fallback_dir = default_registry_dir();
+    if fallback_dir.exists() {
+        if let Ok(snapshot) = load_registry_from_dir(&fallback_dir) {
+            return Ok(snapshot);
+        }
+    }
+
+    load_builtin_registry()
 }
 
 fn validate_registry_snapshot(snapshot: &RegistrySnapshot) -> Result<(), AppError> {
@@ -439,15 +486,11 @@ fn load_world(state: State<'_, AppState>, meta_path: String) -> Result<LoadWorld
         .map_err(|e| e.to_string())?
         .to_path_buf();
 
-    let registry_dir = world_dir
-        .parent()
-        .map(|p| p.join("registry"))
-        .filter(|p| p.exists())
-        .unwrap_or_else(default_registry_dir);
+    let registry_dir = sibling_registry_dir(&world_dir);
 
     let world_meta_text = fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
     let meta: WorldMeta = serde_json::from_str(&world_meta_text).map_err(|e| e.to_string())?;
-    let registry = load_registry_from_dir(&registry_dir).map_err(|e| e.to_string())?;
+    let registry = load_registry_best_effort(&registry_dir).map_err(|e| e.to_string())?;
 
     let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
     runtime.world_meta_path = Some(meta_path);
@@ -480,12 +523,11 @@ fn create_world(state: State<'_, AppState>, meta_path: String) -> Result<LoadWor
 
     fs::create_dir_all(world_dir.join("chunks")).map_err(|e| e.to_string())?;
 
-    let registry_dir = world_dir
-        .parent()
-        .map(|p| p.join("registry"))
-        .filter(|p| p.exists())
-        .unwrap_or_else(default_registry_dir);
-    let registry = load_registry_from_dir(&registry_dir).map_err(|e| e.to_string())?;
+    let registry_dir = sibling_registry_dir(&world_dir);
+    let registry = load_registry_best_effort(&registry_dir).map_err(|e| e.to_string())?;
+    if !registry_dir.exists() {
+        write_registry_to_dir(&registry_dir, &registry).map_err(|e| e.to_string())?;
+    }
 
     let meta = WorldMeta {
         version: "1.0.0".to_string(),
@@ -583,7 +625,7 @@ fn load_registry(state: State<'_, AppState>) -> Result<RegistrySnapshot, String>
         .registry_dir
         .clone()
         .unwrap_or_else(default_registry_dir);
-    let snapshot = load_registry_from_dir(&dir).map_err(|e| e.to_string())?;
+    let snapshot = load_registry_best_effort(&dir).map_err(|e| e.to_string())?;
     runtime.registry = Some(snapshot.clone());
     runtime.registry_dir = Some(dir);
     Ok(snapshot)
@@ -619,7 +661,7 @@ fn validate_pixel_payload(state: State<'_, AppState>, payload: PixelCell) -> Res
             .registry_dir
             .clone()
             .unwrap_or_else(default_registry_dir);
-        let snapshot = load_registry_from_dir(&dir).map_err(|e| e.to_string())?;
+        let snapshot = load_registry_best_effort(&dir).map_err(|e| e.to_string())?;
         runtime.registry = Some(snapshot);
         runtime.registry_dir = Some(dir);
     }
