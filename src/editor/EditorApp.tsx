@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { open } from "@tauri-apps/plugin-dialog";
+import { open, save } from "@tauri-apps/plugin-dialog";
 import { CanvasRenderer } from "../renderer/canvasRenderer";
 import type { ChunkCoord, ChunkData, PixelCell, RegistrySnapshot, WorldMeta } from "../renderer/types";
 import { hexToRgb, rgbToHex } from "../lib/color";
 import {
   applyPixelPatch,
+  createWorld,
   loadChunks,
   loadRegistry,
   loadWorld,
@@ -64,6 +65,7 @@ export function EditorApp() {
   const [chunks, setChunks] = useState<Map<string, ChunkData>>(new Map());
   const [dirtyChunkSet, setDirtyChunkSet] = useState(new Set<string>());
   const [status, setStatus] = useState("Ready");
+  const [isWorldLoaded, setIsWorldLoaded] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [selectedPixel, setSelectedPixel] = useState<PixelCell>(defaultPixel);
   const [selectedCoord, setSelectedCoord] = useState<{ x: number; y: number } | null>(null);
@@ -263,8 +265,10 @@ export function EditorApp() {
   const handleOpenWorld = async (): Promise<void> => {
     try {
       worldLoadedRef.current = false;
+      setIsWorldLoaded(false);
       setStatus("Loading world...");
-      const [world, snapshot] = await Promise.all([loadWorld(metaPath), loadRegistry()]);
+      const world = await loadWorld(metaPath);
+      const snapshot = await loadRegistry();
       setMeta(world.meta);
       setRegistry(snapshot);
       hydrateBrushDefaults(snapshot);
@@ -282,11 +286,58 @@ export function EditorApp() {
       }
 
       worldLoadedRef.current = true;
+      setIsWorldLoaded(true);
       await ensureVisibleChunks();
       setStatus("World loaded");
     } catch (error) {
       worldLoadedRef.current = false;
+      setIsWorldLoaded(false);
       setStatus(`Failed to load world: ${String(error)}`);
+    }
+  };
+
+  const handleCreateWorld = async (): Promise<void> => {
+    try {
+      const selected = await save({
+        title: "Create New World",
+        defaultPath: "world.json",
+        filters: [{ name: "World Meta", extensions: ["json"] }]
+      });
+      if (!selected) {
+        return;
+      }
+
+      worldLoadedRef.current = false;
+      setIsWorldLoaded(false);
+      setMetaPath(selected);
+      setStatus("Creating world...");
+
+      const world = await createWorld(selected);
+      const snapshot = await loadRegistry();
+      setMeta(world.meta);
+      setRegistry(snapshot);
+      hydrateBrushDefaults(snapshot);
+
+      const initialMap = new Map(world.initial_chunks.map((chunk) => [chunkKey(chunk.coord), chunk]));
+      setChunks(initialMap);
+      loadedChunkKeysRef.current = new Set(initialMap.keys());
+
+      const renderer = rendererRef.current;
+      if (renderer) {
+        renderer.configure(world.meta);
+        renderer.setCamera(0, 0);
+        renderer.resetChunks(world.initial_chunks);
+        syncCameraInfo();
+      }
+
+      worldLoadedRef.current = true;
+      setIsWorldLoaded(true);
+      await ensureVisibleChunks();
+      setStatus("World created and loaded");
+    } catch (error) {
+      worldLoadedRef.current = false;
+      setIsWorldLoaded(false);
+      setStatus(`Create world failed: ${String(error)}`);
     }
   };
 
@@ -301,6 +352,8 @@ export function EditorApp() {
         return;
       }
       setMetaPath(selected);
+      worldLoadedRef.current = false;
+      setIsWorldLoaded(false);
       setStatus(`Selected map: ${selected}`);
     } catch (error) {
       setStatus(`Select file failed: ${String(error)}`);
@@ -308,6 +361,10 @@ export function EditorApp() {
   };
 
   const handleSave = async (): Promise<void> => {
+    if (!isWorldLoaded) {
+      setStatus("Please open or create a world first");
+      return;
+    }
     try {
       await saveWorld();
       setStatus("World saved");
@@ -530,14 +587,24 @@ export function EditorApp() {
           <strong>World</strong>
           <div className="row">
             <label>Meta Path</label>
-            <input value={metaPath} onChange={(e) => setMetaPath(e.target.value)} />
+            <input
+              value={metaPath}
+              onChange={(e) => {
+                setMetaPath(e.target.value);
+                worldLoadedRef.current = false;
+                setIsWorldLoaded(false);
+              }}
+            />
           </div>
           <div className="row row-buttons">
             <button onClick={() => void handleBrowseWorld()}>Browse</button>
+            <button onClick={() => void handleCreateWorld()}>New</button>
             <button className="primary" onClick={() => void handleOpenWorld()}>
               Open
             </button>
-            <button onClick={() => void handleSave()}>Save</button>
+            <button onClick={() => void handleSave()} disabled={!isWorldLoaded}>
+              Save
+            </button>
           </div>
           <div className="status">{status}</div>
         </div>

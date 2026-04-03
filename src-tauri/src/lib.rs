@@ -470,6 +470,68 @@ fn load_world(state: State<'_, AppState>, meta_path: String) -> Result<LoadWorld
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
+fn create_world(state: State<'_, AppState>, meta_path: String) -> Result<LoadWorldResponse, String> {
+    let meta_path = PathBuf::from(meta_path);
+    let world_dir = meta_path
+        .parent()
+        .ok_or(AppError::InvalidWorldPath)
+        .map_err(|e| e.to_string())?
+        .to_path_buf();
+
+    fs::create_dir_all(world_dir.join("chunks")).map_err(|e| e.to_string())?;
+
+    let registry_dir = world_dir
+        .parent()
+        .map(|p| p.join("registry"))
+        .filter(|p| p.exists())
+        .unwrap_or_else(default_registry_dir);
+    let registry = load_registry_from_dir(&registry_dir).map_err(|e| e.to_string())?;
+
+    let meta = WorldMeta {
+        version: "1.0.0".to_string(),
+        registry_version: registry.version.clone(),
+        small_pixel_size: 2,
+        big_grid_size: 32,
+        chunk_size: 32,
+    };
+
+    fs::write(
+        &meta_path,
+        serde_json::to_string_pretty(&meta).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let initial_chunk = ChunkData {
+        coord: ChunkCoord { x: 0, y: 0 },
+        cells: HashMap::new(),
+    };
+    let chunk_path = world_dir.join("chunks").join("c_0_0.json");
+    fs::write(
+        &chunk_path,
+        serde_json::to_string_pretty(&initial_chunk).map_err(|e| e.to_string())?,
+    )
+    .map_err(|e| e.to_string())?;
+
+    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+    runtime.world_meta_path = Some(meta_path);
+    runtime.world_dir = Some(world_dir);
+    runtime.registry_dir = Some(registry_dir);
+    runtime.meta = Some(meta.clone());
+    runtime.registry = Some(registry);
+    runtime.chunks.clear();
+    runtime.dirty_chunks.clear();
+    runtime
+        .chunks
+        .insert(ChunkCoord { x: 0, y: 0 }, initial_chunk.clone());
+
+    Ok(LoadWorldResponse {
+        meta,
+        initial_chunks: vec![initial_chunk],
+    })
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
 fn load_chunks(state: State<'_, AppState>, chunk_coords: Vec<ChunkCoord>) -> Result<Vec<ChunkData>, String> {
     let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
     runtime.require_meta().map_err(|e| e.to_string())?;
@@ -608,6 +670,7 @@ pub fn run() {
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             load_world,
+            create_world,
             load_chunks,
             apply_pixel_patch,
             load_registry,

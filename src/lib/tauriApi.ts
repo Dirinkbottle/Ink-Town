@@ -13,6 +13,10 @@ export async function loadWorld(metaPath: string): Promise<LoadWorldResponse> {
   return invoke("load_world", { metaPath });
 }
 
+export async function createWorld(metaPath: string): Promise<LoadWorldResponse> {
+  return invoke("create_world", { metaPath });
+}
+
 export async function loadChunks(chunkCoords: ChunkCoord[]): Promise<ChunkData[]> {
   return invoke("load_chunks", { chunkCoords });
 }
