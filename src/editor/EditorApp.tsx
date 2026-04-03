@@ -24,6 +24,7 @@ import { CanvasHud } from "./components/CanvasHud";
 import { EditorSidebar } from "./components/EditorSidebar";
 import { EditorStatusBar } from "./components/EditorStatusBar";
 import { corePixelKeys, defaultMeta, defaultPixel } from "./constants";
+import { useEditorShortcuts } from "./hooks/useEditorShortcuts";
 import type { PanelSectionId } from "./types/panel";
 import {
   buildBrushOffsets,
@@ -631,6 +632,19 @@ export function EditorApp() {
       setSelectedPixel(pixel);
     }
   };
+  const shortcutHandlers = useMemo(
+    () => ({
+      onSave: () => void handleSave(),
+      onOpen: () => void handleOpenWorld(),
+      onNew: () => void handleCreateWorld(),
+      onToggleGrid: () => setShowGrid((prev) => !prev),
+      onIncreaseBrushSize: () => setBrushSize((prev) => Math.min(15, prev + 1)),
+      onDecreaseBrushSize: () => setBrushSize((prev) => Math.max(1, prev - 1))
+    }),
+    [handleCreateWorld, handleOpenWorld, handleSave]
+  );
+
+  useEditorShortcuts(shortcutHandlers);
 
   return (
     <div className={`app ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
