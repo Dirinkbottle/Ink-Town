@@ -45,6 +45,46 @@ function parseCsvValues(raw: string): string[] {
     .filter((v) => v.length > 0);
 }
 
+function zhDisplay(text: string): string {
+  const map: Record<string, string> = {
+    Soil: "土壤",
+    Stone: "石头",
+    Wood: "木材",
+    Water: "水",
+    Terrain: "地形",
+    Humidity: "湿度",
+    Biome: "生态",
+    plain: "平原",
+    forest: "森林",
+    rock: "岩地",
+    water: "水域",
+    dry: "干燥",
+    normal: "正常",
+    wet: "潮湿",
+    temperate: "温带",
+    desert: "沙漠",
+    tundra: "苔原"
+  };
+  return map[text] ?? text;
+}
+
+function zhField(field: string): string {
+  if (field === "material") {
+    return "材质";
+  }
+  if (field === "durability") {
+    return "耐久";
+  }
+  if (field === "color") {
+    return "颜色";
+  }
+  if (field.startsWith("attrs.")) {
+    const attr = field.slice("attrs.".length);
+    return `属性(${zhDisplay(attr)})`;
+  }
+  return field;
+}
+
 function buildBrushOffsets(size: number): Array<{ dx: number; dy: number }> {
   const offsets: Array<{ dx: number; dy: number }> = [];
   const radius = Math.floor(size / 2);
@@ -64,7 +104,7 @@ export function EditorApp() {
   const [registry, setRegistry] = useState<RegistrySnapshot | null>(null);
   const [chunks, setChunks] = useState<Map<string, ChunkData>>(new Map());
   const [dirtyChunkSet, setDirtyChunkSet] = useState(new Set<string>());
-  const [status, setStatus] = useState("Ready");
+  const [status, setStatus] = useState("就绪");
   const [isWorldLoaded, setIsWorldLoaded] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
   const [selectedPixel, setSelectedPixel] = useState<PixelCell>(defaultPixel);
@@ -85,7 +125,7 @@ export function EditorApp() {
   const [newAttributeId, setNewAttributeId] = useState("");
   const [newAttributeLabel, setNewAttributeLabel] = useState("");
   const [newAttributeRequired, setNewAttributeRequired] = useState(false);
-  const [newAttributeValues, setNewAttributeValues] = useState("plain, forest, rock");
+  const [newAttributeValues, setNewAttributeValues] = useState("平原, 森林, 岩地");
 
   const [selectedAttributeForValue, setSelectedAttributeForValue] = useState("");
   const [newValueForAttribute, setNewValueForAttribute] = useState("");
@@ -162,7 +202,7 @@ export function EditorApp() {
         applyLoadedChunks(loaded);
       }
     } catch (error) {
-      setStatus(`Load visible chunks failed: ${String(error)}`);
+      setStatus(`加载可视区分块失败：${String(error)}`);
     } finally {
       loadingVisibleRef.current = false;
       if (queuedVisibleRef.current) {
@@ -266,7 +306,7 @@ export function EditorApp() {
     try {
       worldLoadedRef.current = false;
       setIsWorldLoaded(false);
-      setStatus("Loading world...");
+      setStatus("正在加载地图...");
       const world = await loadWorld(metaPath);
       const snapshot = await loadRegistry();
       setMeta(world.meta);
@@ -288,20 +328,20 @@ export function EditorApp() {
       worldLoadedRef.current = true;
       setIsWorldLoaded(true);
       await ensureVisibleChunks();
-      setStatus("World loaded");
+      setStatus("地图加载完成");
     } catch (error) {
       worldLoadedRef.current = false;
       setIsWorldLoaded(false);
-      setStatus(`Failed to load world: ${String(error)}`);
+      setStatus(`地图加载失败：${String(error)}`);
     }
   };
 
   const handleCreateWorld = async (): Promise<void> => {
     try {
       const selected = await save({
-        title: "Create New World",
+        title: "新建地图",
         defaultPath: "world.json",
-        filters: [{ name: "World Meta", extensions: ["json"] }]
+        filters: [{ name: "地图元文件", extensions: ["json"] }]
       });
       if (!selected) {
         return;
@@ -310,7 +350,7 @@ export function EditorApp() {
       worldLoadedRef.current = false;
       setIsWorldLoaded(false);
       setMetaPath(selected);
-      setStatus("Creating world...");
+      setStatus("正在创建地图...");
 
       const world = await createWorld(selected);
       const snapshot = await loadRegistry();
@@ -333,11 +373,11 @@ export function EditorApp() {
       worldLoadedRef.current = true;
       setIsWorldLoaded(true);
       await ensureVisibleChunks();
-      setStatus("World created and loaded");
+      setStatus("地图创建并加载完成");
     } catch (error) {
       worldLoadedRef.current = false;
       setIsWorldLoaded(false);
-      setStatus(`Create world failed: ${String(error)}`);
+      setStatus(`创建地图失败：${String(error)}`);
     }
   };
 
@@ -346,7 +386,7 @@ export function EditorApp() {
       const selected = await open({
         multiple: false,
         directory: false,
-        filters: [{ name: "World Meta", extensions: ["json"] }]
+        filters: [{ name: "地图元文件", extensions: ["json"] }]
       });
       if (!selected || Array.isArray(selected)) {
         return;
@@ -354,22 +394,22 @@ export function EditorApp() {
       setMetaPath(selected);
       worldLoadedRef.current = false;
       setIsWorldLoaded(false);
-      setStatus(`Selected map: ${selected}`);
+      setStatus(`已选择地图：${selected}`);
     } catch (error) {
-      setStatus(`Select file failed: ${String(error)}`);
+      setStatus(`选择文件失败：${String(error)}`);
     }
   };
 
   const handleSave = async (): Promise<void> => {
     if (!isWorldLoaded) {
-      setStatus("Please open or create a world first");
+      setStatus("请先打开或新建地图");
       return;
     }
     try {
       await saveWorld();
-      setStatus("World saved");
+      setStatus("地图保存成功");
     } catch (error) {
-      setStatus(`Save failed: ${String(error)}`);
+      setStatus(`保存失败：${String(error)}`);
     }
   };
 
@@ -378,10 +418,10 @@ export function EditorApp() {
       const saved = await saveRegistry(snapshot);
       setRegistry(saved);
       hydrateBrushDefaults(saved);
-      setStatus("Registry saved");
+      setStatus("索引库保存成功");
       return true;
     } catch (error) {
-      setStatus(`Save registry failed: ${String(error)}`);
+      setStatus(`索引库保存失败：${String(error)}`);
       return false;
     }
   };
@@ -393,11 +433,11 @@ export function EditorApp() {
     const id = normalizeId(newMaterialId);
     const label = newMaterialLabel.trim();
     if (!id || !label) {
-      setStatus("Material id/label cannot be empty");
+      setStatus("材质 ID 和名称不能为空");
       return;
     }
     if (registry.materials.some((m) => m.id === id)) {
-      setStatus(`Material '${id}' already exists`);
+      setStatus(`材质 '${id}' 已存在`);
       return;
     }
 
@@ -430,15 +470,15 @@ export function EditorApp() {
     const label = newAttributeLabel.trim();
     const values = parseCsvValues(newAttributeValues);
     if (!id || !label) {
-      setStatus("Attribute id/label cannot be empty");
+      setStatus("属性 ID 和名称不能为空");
       return;
     }
     if (values.length === 0) {
-      setStatus("Attribute values cannot be empty");
+      setStatus("属性可选值不能为空");
       return;
     }
     if (registry.attributes.some((a) => a.id === id)) {
-      setStatus(`Attribute '${id}' already exists`);
+      setStatus(`属性 '${id}' 已存在`);
       return;
     }
 
@@ -472,7 +512,7 @@ export function EditorApp() {
       setNewAttributeId("");
       setNewAttributeLabel("");
       setNewAttributeRequired(false);
-      setNewAttributeValues("plain, forest, rock");
+      setNewAttributeValues("平原, 森林, 岩地");
       setSelectedAttributeForValue(id);
     }
   };
@@ -484,19 +524,19 @@ export function EditorApp() {
 
     const value = newValueForAttribute.trim();
     if (!value) {
-      setStatus("New value cannot be empty");
+      setStatus("新增值不能为空");
       return;
     }
 
     const attr = registry.attributes.find((a) => a.id === selectedAttributeForValue);
     if (!attr) {
-      setStatus("Selected attribute not found");
+      setStatus("未找到选中的属性");
       return;
     }
 
     const currentValues = registry.value_sets[attr.value_set] ?? [];
     if (currentValues.includes(value)) {
-      setStatus(`Value '${value}' already exists`);
+      setStatus(`值 '${value}' 已存在`);
       return;
     }
 
@@ -545,7 +585,7 @@ export function EditorApp() {
 
     const valid = await validatePixelPayload(pixel);
     if (!valid.ok) {
-      setStatus(`Validation failed: ${valid.errors.map((e) => `${e.field}: ${e.message}`).join("; ")}`);
+      setStatus(`校验失败：${valid.errors.map((e) => `${zhField(e.field)}: ${e.message}`).join("；")}`);
       return;
     }
 
@@ -559,9 +599,9 @@ export function EditorApp() {
       setSelectedCoord({ x: point.worldX, y: point.worldY });
       setSelectedPixel(pixel);
       lastPaintRef.current = stampKey;
-      setStatus(`Painted ${patches.length} px around (${point.worldX}, ${point.worldY})`);
+      setStatus(`已绘制 ${patches.length} 像素，中心 (${point.worldX}, ${point.worldY})`);
     } catch (error) {
-      setStatus(`Paint failed: ${String(error)}`);
+      setStatus(`绘制失败：${String(error)}`);
     }
   };
 
@@ -581,12 +621,12 @@ export function EditorApp() {
   return (
     <div className="app">
       <aside className="sidebar">
-        <h1 className="title">Ink Town Editor</h1>
+        <h1 className="title">墨镇编辑器</h1>
 
         <div className="section">
-          <strong>World</strong>
+          <strong>地图</strong>
           <div className="row">
-            <label>Meta Path</label>
+            <label>元文件路径</label>
             <input
               value={metaPath}
               onChange={(e) => {
@@ -597,48 +637,48 @@ export function EditorApp() {
             />
           </div>
           <div className="row row-buttons">
-            <button onClick={() => void handleBrowseWorld()}>Browse</button>
-            <button onClick={() => void handleCreateWorld()}>New</button>
+            <button onClick={() => void handleBrowseWorld()}>浏览</button>
+            <button onClick={() => void handleCreateWorld()}>新建</button>
             <button className="primary" onClick={() => void handleOpenWorld()}>
-              Open
+              打开
             </button>
             <button onClick={() => void handleSave()} disabled={!isWorldLoaded}>
-              Save
+              保存
             </button>
           </div>
           <div className="status">{status}</div>
         </div>
 
         <div className="section">
-          <strong>Camera</strong>
+          <strong>视角</strong>
           <div className="status">
-            world=({cameraInfo.x}, {cameraInfo.y}) zoom={cameraInfo.zoom.toFixed(2)}x
+            坐标=({cameraInfo.x}, {cameraInfo.y}) 缩放={cameraInfo.zoom.toFixed(2)}x
           </div>
-          <div className="status">Middle mouse drag: pan | Wheel: zoom | Left mouse: paint</div>
+          <div className="status">中键拖拽平移 | 滚轮缩放 | 左键绘制</div>
           <div className="row">
-            <label>Grid</label>
+            <label>网格</label>
             <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
           </div>
         </div>
 
         <div className="section">
-          <strong>Brush</strong>
+          <strong>画笔</strong>
           <div className="row">
-            <label>Color</label>
+            <label>颜色</label>
             <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} />
           </div>
           <div className="row">
-            <label>Material</label>
+            <label>材质</label>
             <select value={brushMaterial} onChange={(e) => setBrushMaterial(e.target.value)}>
               {(registry?.materials ?? []).map((m) => (
                 <option key={m.id} value={m.id}>
-                  {m.label} ({m.id})
+                  {zhDisplay(m.label)} ({m.id})
                 </option>
               ))}
             </select>
           </div>
           <div className="row">
-            <label>Durability</label>
+            <label>耐久</label>
             <input
               type="number"
               min={0}
@@ -647,7 +687,7 @@ export function EditorApp() {
             />
           </div>
           <div className="row">
-            <label>Brush Size</label>
+            <label>画笔大小</label>
             <input
               type="range"
               min={1}
@@ -661,10 +701,10 @@ export function EditorApp() {
         </div>
 
         <div className="section">
-          <strong>Brush Attributes</strong>
+          <strong>画笔属性</strong>
           {(registry?.attributes ?? []).map((attr) => (
             <div className="row" key={attr.id}>
-              <label>{attr.label}</label>
+              <label>{zhDisplay(attr.label)}</label>
               <select
                 value={brushAttrs[attr.id] ?? ""}
                 onChange={(e) => {
@@ -674,7 +714,7 @@ export function EditorApp() {
               >
                 {(attributeOptions[attr.id] ?? []).map((value) => (
                   <option key={value} value={value}>
-                    {value}
+                    {zhDisplay(value)}
                   </option>
                 ))}
               </select>
@@ -683,23 +723,27 @@ export function EditorApp() {
         </div>
 
         <div className="section">
-          <strong>Registry Editor</strong>
+          <strong>索引库编辑</strong>
           <div className="row">
-            <label>Version</label>
+            <label>版本号</label>
             <input value={registryVersionInput} onChange={(e) => setRegistryVersionInput(e.target.value)} />
           </div>
 
-          <div className="sub-title">Add Material</div>
+          <div className="sub-title">新增材质</div>
           <div className="row">
-            <label>ID</label>
-            <input value={newMaterialId} onChange={(e) => setNewMaterialId(e.target.value)} placeholder="e.g. metal" />
+            <label>标识</label>
+            <input
+              value={newMaterialId}
+              onChange={(e) => setNewMaterialId(e.target.value)}
+              placeholder="例如 metal（建议英文）"
+            />
           </div>
           <div className="row">
-            <label>Label</label>
-            <input value={newMaterialLabel} onChange={(e) => setNewMaterialLabel(e.target.value)} placeholder="Metal" />
+            <label>名称</label>
+            <input value={newMaterialLabel} onChange={(e) => setNewMaterialLabel(e.target.value)} placeholder="例如 金属" />
           </div>
           <div className="row">
-            <label>Max Durability</label>
+            <label>最大耐久</label>
             <input
               type="number"
               min={0}
@@ -708,70 +752,74 @@ export function EditorApp() {
             />
           </div>
           <div className="row row-buttons">
-            <button onClick={() => void handleAddMaterial()}>Add Material</button>
+            <button onClick={() => void handleAddMaterial()}>添加材质</button>
           </div>
 
-          <div className="sub-title">Add Attribute</div>
+          <div className="sub-title">新增属性</div>
           <div className="row">
-            <label>ID</label>
-            <input value={newAttributeId} onChange={(e) => setNewAttributeId(e.target.value)} placeholder="e.g. biome" />
+            <label>标识</label>
+            <input
+              value={newAttributeId}
+              onChange={(e) => setNewAttributeId(e.target.value)}
+              placeholder="例如 biome（建议英文）"
+            />
           </div>
           <div className="row">
-            <label>Label</label>
-            <input value={newAttributeLabel} onChange={(e) => setNewAttributeLabel(e.target.value)} placeholder="Biome" />
+            <label>名称</label>
+            <input value={newAttributeLabel} onChange={(e) => setNewAttributeLabel(e.target.value)} placeholder="例如 生态群落" />
           </div>
           <div className="row">
-            <label>Values (CSV)</label>
+            <label>可选值（逗号分隔）</label>
             <input value={newAttributeValues} onChange={(e) => setNewAttributeValues(e.target.value)} />
           </div>
           <div className="row">
-            <label>Required</label>
+            <label>必填</label>
             <input type="checkbox" checked={newAttributeRequired} onChange={(e) => setNewAttributeRequired(e.target.checked)} />
           </div>
           <div className="row row-buttons">
-            <button onClick={() => void handleAddAttribute()}>Add Attribute</button>
+            <button onClick={() => void handleAddAttribute()}>添加属性</button>
           </div>
 
-          <div className="sub-title">Append Value</div>
+          <div className="sub-title">追加属性值</div>
           <div className="row">
-            <label>Attribute</label>
+            <label>属性</label>
             <select value={selectedAttributeForValue} onChange={(e) => setSelectedAttributeForValue(e.target.value)}>
-              <option value="">Select...</option>
+              <option value="">请选择...</option>
               {(registry?.attributes ?? []).map((attr) => (
                 <option key={attr.id} value={attr.id}>
-                  {attr.label} ({attr.id})
+                  {zhDisplay(attr.label)} ({attr.id})
                 </option>
               ))}
             </select>
           </div>
           <div className="row">
-            <label>New Value</label>
-            <input value={newValueForAttribute} onChange={(e) => setNewValueForAttribute(e.target.value)} placeholder="e.g. swamp" />
+            <label>新增值</label>
+            <input value={newValueForAttribute} onChange={(e) => setNewValueForAttribute(e.target.value)} placeholder="例如 沼泽" />
           </div>
           <div className="row row-buttons">
-            <button onClick={() => void handleAddValueToAttribute()}>Add Value</button>
+            <button onClick={() => void handleAddValueToAttribute()}>添加值</button>
           </div>
         </div>
 
         <div className="section">
-          <strong>Inspect</strong>
-          <div className="status">{selectedCoord ? `(${selectedCoord.x}, ${selectedCoord.y})` : "no cell selected"}</div>
+          <strong>检视</strong>
+          <div className="status">{selectedCoord ? `(${selectedCoord.x}, ${selectedCoord.y})` : "未选中像素"}</div>
           <div className="row">
-            <label>RGB</label>
+            <label>颜色</label>
             <input value={rgbToHex(selectedPixel.color)} readOnly />
           </div>
           <div className="row">
-            <label>Material</label>
-            <input value={selectedPixel.material} readOnly />
+            <label>材质</label>
+            <input value={zhDisplay(selectedPixel.material)} readOnly />
           </div>
           <div className="row">
-            <label>Durability</label>
+            <label>耐久</label>
             <input value={selectedPixel.durability} readOnly />
           </div>
           <div>
             {Object.entries(selectedPixel.attrs).map(([k, v]) => (
               <span key={k} className="attr-pill">
-                {k}:{v}
+                {zhDisplay(k)}:{zhDisplay(v)}
               </span>
             ))}
           </div>

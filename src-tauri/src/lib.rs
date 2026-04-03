@@ -173,23 +173,23 @@ struct AppState {
 
 #[derive(Debug, Error)]
 enum AppError {
-    #[error("world is not loaded")]
+    #[error("世界尚未加载")]
     NotLoaded,
-    #[error("registry is not loaded")]
+    #[error("索引库尚未加载")]
     RegistryUnavailable,
-    #[error("I/O error: {0}")]
+    #[error("I/O 错误: {0}")]
     Io(#[from] std::io::Error),
-    #[error("JSON parse error: {0}")]
+    #[error("JSON 解析错误: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("schema compile error: {0}")]
+    #[error("Schema 编译错误: {0}")]
     SchemaCompile(String),
-    #[error("validation failed")]
+    #[error("数据校验失败")]
     Validation { errors: Vec<ValidationError> },
-    #[error("invalid world path")]
+    #[error("地图路径无效")]
     InvalidWorldPath,
-    #[error("invalid registry: {0}")]
+    #[error("索引库无效: {0}")]
     InvalidRegistry(String),
-    #[error("state lock poisoned")]
+    #[error("状态锁已损坏")]
     LockPoisoned,
 }
 
@@ -278,17 +278,17 @@ fn load_registry_best_effort(preferred_dir: &Path) -> Result<RegistrySnapshot, A
 
 fn validate_registry_snapshot(snapshot: &RegistrySnapshot) -> Result<(), AppError> {
     if snapshot.version.trim().is_empty() {
-        return Err(AppError::InvalidRegistry("version cannot be empty".to_string()));
+        return Err(AppError::InvalidRegistry("版本号不能为空".to_string()));
     }
 
     let mut material_ids: HashSet<&str> = HashSet::new();
     for material in &snapshot.materials {
         if material.id.trim().is_empty() {
-            return Err(AppError::InvalidRegistry("material id cannot be empty".to_string()));
+            return Err(AppError::InvalidRegistry("材质 ID 不能为空".to_string()));
         }
         if !material_ids.insert(material.id.as_str()) {
             return Err(AppError::InvalidRegistry(format!(
-                "duplicate material id '{}'",
+                "材质 ID 重复 '{}'",
                 material.id
             )));
         }
@@ -297,23 +297,23 @@ fn validate_registry_snapshot(snapshot: &RegistrySnapshot) -> Result<(), AppErro
     let mut attr_ids: HashSet<&str> = HashSet::new();
     for attr in &snapshot.attributes {
         if attr.id.trim().is_empty() {
-            return Err(AppError::InvalidRegistry("attribute id cannot be empty".to_string()));
+            return Err(AppError::InvalidRegistry("属性 ID 不能为空".to_string()));
         }
         if attr.value_set.trim().is_empty() {
             return Err(AppError::InvalidRegistry(format!(
-                "attribute '{}' has empty value_set",
+                "属性 '{}' 的 value_set 为空",
                 attr.id
             )));
         }
         if !attr_ids.insert(attr.id.as_str()) {
             return Err(AppError::InvalidRegistry(format!(
-                "duplicate attribute id '{}'",
+                "属性 ID 重复 '{}'",
                 attr.id
             )));
         }
         if !snapshot.value_sets.contains_key(&attr.value_set) {
             return Err(AppError::InvalidRegistry(format!(
-                "attribute '{}' references missing value_set '{}'",
+                "属性 '{}' 引用了不存在的 value_set '{}'",
                 attr.id, attr.value_set
             )));
         }
@@ -321,20 +321,20 @@ fn validate_registry_snapshot(snapshot: &RegistrySnapshot) -> Result<(), AppErro
 
     for (set_id, values) in &snapshot.value_sets {
         if set_id.trim().is_empty() {
-            return Err(AppError::InvalidRegistry("value_set id cannot be empty".to_string()));
+            return Err(AppError::InvalidRegistry("value_set ID 不能为空".to_string()));
         }
         let mut unique = HashSet::new();
         for value in values {
             let trimmed = value.trim();
             if trimmed.is_empty() {
                 return Err(AppError::InvalidRegistry(format!(
-                    "value_set '{}' contains empty value",
+                    "value_set '{}' 包含空值",
                     set_id
                 )));
             }
             if !unique.insert(trimmed.to_string()) {
                 return Err(AppError::InvalidRegistry(format!(
-                    "value_set '{}' contains duplicate value '{}'",
+                    "value_set '{}' 包含重复值 '{}'",
                     set_id, trimmed
                 )));
             }
@@ -416,7 +416,7 @@ fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) 
     if material.is_none() {
         errors.push(ValidationError {
             field: "material".to_string(),
-            message: format!("unknown material: {}", pixel.material),
+            message: format!("未知材质: {}", pixel.material),
         });
     }
 
@@ -425,7 +425,7 @@ fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) 
             errors.push(ValidationError {
                 field: "durability".to_string(),
                 message: format!(
-                    "durability {} exceeds max {} for material {}",
+                    "耐久 {} 超过材质 {} 的最大值 {}",
                     pixel.durability, material_def.max_durability, material_def.id
                 ),
             });
@@ -436,7 +436,7 @@ fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) 
         if attr.required && !pixel.attrs.contains_key(&attr.id) {
             errors.push(ValidationError {
                 field: format!("attrs.{}", attr.id),
-                message: "required attribute missing".to_string(),
+                message: "缺少必填属性".to_string(),
             });
         }
     }
@@ -445,7 +445,7 @@ fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) 
         let Some(attr_def) = registry.attributes.iter().find(|a| a.id == *key) else {
             errors.push(ValidationError {
                 field: format!("attrs.{}", key),
-                message: "attribute is not defined in registry".to_string(),
+                message: "该属性未在索引库中定义".to_string(),
             });
             continue;
         };
@@ -458,7 +458,7 @@ fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) 
         if !allowed.contains(value) {
             errors.push(ValidationError {
                 field: format!("attrs.{}", key),
-                message: format!("value '{}' not in value set {}", value, attr_def.value_set),
+                message: format!("值 '{}' 不在可选集合 {}", value, attr_def.value_set),
             });
         }
     }
@@ -721,12 +721,12 @@ pub fn run() {
             save_world
         ])
         .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .expect("运行 Tauri 应用失败");
 }
 
 #[cfg(not(feature = "desktop"))]
 pub fn run() {
-    panic!("desktop feature is disabled; enable feature 'desktop' to run the Tauri app");
+    panic!("desktop 功能已禁用；请启用 feature 'desktop' 后再运行");
 }
 
 #[cfg(test)]
