@@ -4,7 +4,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { CanvasRenderer } from "../renderer/canvasRenderer";
 import type { ChunkData, PixelCell, PixelPrimitive, PropertyType, RegistrySnapshot, WorldMeta } from "../renderer/types";
-import { hexToRgb, rgbToHex } from "../lib/color";
+import { hexToRgb } from "../lib/color";
 import {
   applyPixelPatch,
   createWorld,
@@ -22,6 +22,10 @@ import { checkGithubReleaseUpdate } from "../updater/githubReleaseUpdater";
 import type { UpdateCheckResult } from "../updater/types";
 import { PanelSection } from "./components/PanelSection";
 import { SidebarHeader } from "./components/SidebarHeader";
+import { InspectSection } from "./components/sections/InspectSection";
+import { MapStatusSection } from "./components/sections/MapStatusSection";
+import { UpdateSection } from "./components/sections/UpdateSection";
+import { ViewSection } from "./components/sections/ViewSection";
 import { corePixelKeys, defaultMeta, defaultPixel } from "./constants";
 import type { PanelSectionId } from "./types/panel";
 import {
@@ -632,41 +636,28 @@ export function EditorApp() {
         ) : (
           <>
             <PanelSection title="地图" collapsed={sectionCollapsed.map} onToggle={() => toggleSection("map")}>
-              <div className="row">
-                <label>Meta Path</label>
-                <input value={metaPath} readOnly />
-              </div>
-              <div className="status">请使用窗口菜单：新建 / 打开 / 保存</div>
-              <div className="status">{status}</div>
+              <MapStatusSection metaPath={metaPath} status={status} />
             </PanelSection>
 
             <PanelSection title="更新" collapsed={sectionCollapsed.update} onToggle={() => toggleSection("update")}>
-              <div className="status">当前版本：{appVersion}</div>
-              <div className="status">{updateStatus}</div>
-              {updateInfo ? (
-                <div className="status">
-                  最新发布：{updateInfo.releaseName} ({updateInfo.latestVersion})
-                </div>
-              ) : null}
-              <div className="row row-buttons">
-                <button onClick={() => void handleCheckUpdates()} disabled={isCheckingUpdate}>
-                  {isCheckingUpdate ? "检查中..." : "检查更新"}
-                </button>
-                <button onClick={() => void handleOpenUpdatePage()} disabled={!updateInfo}>
-                  打开下载页
-                </button>
-              </div>
+              <UpdateSection
+                appVersion={appVersion}
+                updateStatus={updateStatus}
+                updateInfo={updateInfo}
+                isCheckingUpdate={isCheckingUpdate}
+                onCheckUpdate={() => void handleCheckUpdates()}
+                onOpenUpdatePage={() => void handleOpenUpdatePage()}
+              />
             </PanelSection>
 
             <PanelSection title="视角" collapsed={sectionCollapsed.view} onToggle={() => toggleSection("view")}>
-              <div className="status">
-                坐标=({cameraInfo.x}, {cameraInfo.y}) 缩放={cameraInfo.zoom.toFixed(2)}x
-              </div>
-              <div className="status">中键拖拽平移 | 滚轮缩放 | 左键绘制</div>
-              <div className="row">
-                <label>网格</label>
-                <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
-              </div>
+              <ViewSection
+                cameraX={cameraInfo.x}
+                cameraY={cameraInfo.y}
+                zoom={cameraInfo.zoom}
+                showGrid={showGrid}
+                onToggleGrid={setShowGrid}
+              />
             </PanelSection>
 
             <PanelSection title="画笔" collapsed={sectionCollapsed.brush} onToggle={() => toggleSection("brush")}>
@@ -855,26 +846,12 @@ export function EditorApp() {
             </PanelSection>
 
             <PanelSection title="检视" collapsed={sectionCollapsed.inspect} onToggle={() => toggleSection("inspect")}>
-              <div className="status">{selectedCoord ? `(${selectedCoord.x}, ${selectedCoord.y})` : "未选中像素"}</div>
-              <div className="row">
-                <label>颜色</label>
-                <input value={rgbToHex(selectedPixel.color)} readOnly />
-              </div>
-              <div className="row">
-                <label>材质</label>
-                <input value={selectedPixel.material} readOnly />
-              </div>
-              <div className="row">
-                <label>耐久</label>
-                <input value={selectedPixel.durability} readOnly />
-              </div>
-              <div>
-                {selectedDynamicProps.map(([key, value]) => (
-                  <span key={key} className="attr-pill">
-                    {key}:{formatPropertyValue(value)}
-                  </span>
-                ))}
-              </div>
+              <InspectSection
+                selectedCoord={selectedCoord}
+                selectedPixel={selectedPixel}
+                selectedDynamicProps={selectedDynamicProps}
+                formatPropertyValue={formatPropertyValue}
+              />
             </PanelSection>
           </>
         )}
