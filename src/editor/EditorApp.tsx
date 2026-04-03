@@ -1,4 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { getVersion } from "@tauri-apps/api/app";
+import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { CanvasRenderer } from "../renderer/canvasRenderer";
 import type { ChunkCoord, ChunkData, PixelCell, RegistrySnapshot, WorldMeta } from "../renderer/types";
@@ -9,11 +11,15 @@ import {
   loadChunks,
   loadRegistry,
   loadWorld,
+  openReleaseUrl,
   saveRegistry,
   saveWorld,
   validatePixelPayload
 } from "../lib/tauriApi";
 import { buildAttributeOptions, buildPixelPatch, chunkKey, markDirtyChunks, worldToChunkLocal } from "../lib/worldMath";
+import { getGithubUpdateConfig } from "../updater/config";
+import { checkGithubReleaseUpdate } from "../updater/githubReleaseUpdater";
+import type { UpdateCheckResult } from "../updater/types";
 
 const defaultMeta: WorldMeta = {
   version: "1",
@@ -46,43 +52,11 @@ function parseCsvValues(raw: string): string[] {
 }
 
 function zhDisplay(text: string): string {
-  const map: Record<string, string> = {
-    Soil: "土壤",
-    Stone: "石头",
-    Wood: "木材",
-    Water: "水",
-    Terrain: "地形",
-    Humidity: "湿度",
-    Biome: "生态",
-    plain: "平原",
-    forest: "森林",
-    rock: "岩地",
-    water: "水域",
-    dry: "干燥",
-    normal: "正常",
-    wet: "潮湿",
-    temperate: "温带",
-    desert: "沙漠",
-    tundra: "苔原"
-  };
-  return map[text] ?? text;
+  return text;
 }
 
 function zhField(field: string): string {
-  if (field === "material") {
-    return "材质";
-  }
-  if (field === "durability") {
-    return "耐久";
-  }
-  if (field === "color") {
-    return "颜色";
-  }
-  if (field.startsWith("attrs.")) {
-    const attr = field.slice("attrs.".length);
-    return `属性(${zhDisplay(attr)})`;
-  }
-  return field;
+  return field.replace(/^attrs\./, "");
 }
 
 function buildBrushOffsets(size: number): Array<{ dx: number; dy: number }> {
@@ -129,6 +103,10 @@ export function EditorApp() {
 
   const [selectedAttributeForValue, setSelectedAttributeForValue] = useState("");
   const [newValueForAttribute, setNewValueForAttribute] = useState("");
+  const [appVersion, setAppVersion] = useState("0.0.0");
+  const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
+  const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
+  const [updateStatus, setUpdateStatus] = useState("未检查");
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const rendererRef = useRef<CanvasRenderer | null>(null);
@@ -302,41 +280,61 @@ export function EditorApp() {
     setDirtyChunkSet(new Set());
   }, [dirtyChunkSet]);
 
-  const handleOpenWorld = async (): Promise<void> => {
-    try {
-      worldLoadedRef.current = false;
-      setIsWorldLoaded(false);
-      setStatus("正在加载地图...");
-      const world = await loadWorld(metaPath);
-      const snapshot = await loadRegistry();
-      setMeta(world.meta);
-      setRegistry(snapshot);
-      hydrateBrushDefaults(snapshot);
+  const loadWorldFromPath = useCallback(
+    async (path: string): Promise<void> => {
+      try {
+        worldLoadedRef.current = false;
+        setIsWorldLoaded(false);
+        setMetaPath(path);
+        setStatus("正在加载地图...");
+        const world = await loadWorld(path);
+        const snapshot = await loadRegistry();
+        setMeta(world.meta);
+        setRegistry(snapshot);
+        hydrateBrushDefaults(snapshot);
 
-      const initialMap = new Map(world.initial_chunks.map((chunk) => [chunkKey(chunk.coord), chunk]));
-      setChunks(initialMap);
-      loadedChunkKeysRef.current = new Set(initialMap.keys());
+        const initialMap = new Map(world.initial_chunks.map((chunk) => [chunkKey(chunk.coord), chunk]));
+        setChunks(initialMap);
+        loadedChunkKeysRef.current = new Set(initialMap.keys());
 
-      const renderer = rendererRef.current;
-      if (renderer) {
-        renderer.configure(world.meta);
-        renderer.setCamera(0, 0);
-        renderer.resetChunks(world.initial_chunks);
-        syncCameraInfo();
+        const renderer = rendererRef.current;
+        if (renderer) {
+          renderer.configure(world.meta);
+          renderer.setCamera(0, 0);
+          renderer.resetChunks(world.initial_chunks);
+          syncCameraInfo();
+        }
+
+        worldLoadedRef.current = true;
+        setIsWorldLoaded(true);
+        await ensureVisibleChunks();
+        setStatus("地图加载完成");
+      } catch (error) {
+        worldLoadedRef.current = false;
+        setIsWorldLoaded(false);
+        setStatus(`地图加载失败：${String(error)}`);
       }
+    },
+    [ensureVisibleChunks, hydrateBrushDefaults, syncCameraInfo]
+  );
 
-      worldLoadedRef.current = true;
-      setIsWorldLoaded(true);
-      await ensureVisibleChunks();
-      setStatus("地图加载完成");
+  const handleOpenWorld = useCallback(async (): Promise<void> => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "地图元文件", extensions: ["json"] }]
+      });
+      if (!selected || Array.isArray(selected)) {
+        return;
+      }
+      await loadWorldFromPath(selected);
     } catch (error) {
-      worldLoadedRef.current = false;
-      setIsWorldLoaded(false);
-      setStatus(`地图加载失败：${String(error)}`);
+      setStatus(`打开地图失败：${String(error)}`);
     }
-  };
+  }, [loadWorldFromPath]);
 
-  const handleCreateWorld = async (): Promise<void> => {
+  const handleCreateWorld = useCallback(async (): Promise<void> => {
     try {
       const selected = await save({
         title: "新建地图",
@@ -379,29 +377,10 @@ export function EditorApp() {
       setIsWorldLoaded(false);
       setStatus(`创建地图失败：${String(error)}`);
     }
-  };
+  }, [ensureVisibleChunks, hydrateBrushDefaults, syncCameraInfo]);
 
-  const handleBrowseWorld = async (): Promise<void> => {
-    try {
-      const selected = await open({
-        multiple: false,
-        directory: false,
-        filters: [{ name: "地图元文件", extensions: ["json"] }]
-      });
-      if (!selected || Array.isArray(selected)) {
-        return;
-      }
-      setMetaPath(selected);
-      worldLoadedRef.current = false;
-      setIsWorldLoaded(false);
-      setStatus(`已选择地图：${selected}`);
-    } catch (error) {
-      setStatus(`选择文件失败：${String(error)}`);
-    }
-  };
-
-  const handleSave = async (): Promise<void> => {
-    if (!isWorldLoaded) {
+  const handleSave = useCallback(async (): Promise<void> => {
+    if (!worldLoadedRef.current) {
       setStatus("请先打开或新建地图");
       return;
     }
@@ -411,7 +390,94 @@ export function EditorApp() {
     } catch (error) {
       setStatus(`保存失败：${String(error)}`);
     }
-  };
+  }, []);
+
+  const handleCheckUpdates = useCallback(async (): Promise<void> => {
+    setIsCheckingUpdate(true);
+    try {
+      const config = getGithubUpdateConfig();
+      const current = (await getVersion()) || appVersion;
+      if (current && current !== appVersion) {
+        setAppVersion(current);
+      }
+      const result = await checkGithubReleaseUpdate(current || appVersion, config);
+      setUpdateInfo(result);
+      if (result.hasUpdate) {
+        setUpdateStatus(`发现新版本 ${result.latestVersion}`);
+      } else {
+        setUpdateStatus(`已是最新版本 (${result.currentVersion})`);
+      }
+    } catch (error) {
+      setUpdateStatus(`检查失败：${String(error)}`);
+    } finally {
+      setIsCheckingUpdate(false);
+    }
+  }, [appVersion]);
+
+  const handleOpenUpdatePage = useCallback(async (): Promise<void> => {
+    const target = updateInfo?.downloadUrl || updateInfo?.releaseUrl;
+    if (!target) {
+      setUpdateStatus("没有可打开的更新链接");
+      return;
+    }
+    try {
+      await openReleaseUrl(target);
+    } catch (error) {
+      setUpdateStatus(`打开链接失败：${String(error)}`);
+    }
+  }, [updateInfo]);
+
+  useEffect(() => {
+    let alive = true;
+    void (async () => {
+      try {
+        const version = await getVersion();
+        if (!alive) {
+          return;
+        }
+        setAppVersion(version);
+        setUpdateStatus(`当前版本 ${version}`);
+      } catch (error) {
+        if (alive) {
+          setUpdateStatus(`读取版本失败：${String(error)}`);
+        }
+      }
+    })();
+    return () => {
+      alive = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    let active = true;
+    const unlisteners: UnlistenFn[] = [];
+
+    const bindMenuEvents = async () => {
+      const bind = async (eventName: string, handler: () => Promise<void>) => {
+        const unlisten = await listen(eventName, () => {
+          void handler();
+        });
+        if (!active) {
+          unlisten();
+          return;
+        }
+        unlisteners.push(unlisten);
+      };
+
+      await bind("menu:new-world", handleCreateWorld);
+      await bind("menu:open-world", handleOpenWorld);
+      await bind("menu:save-world", handleSave);
+    };
+
+    void bindMenuEvents();
+
+    return () => {
+      active = false;
+      for (const unlisten of unlisteners) {
+        unlisten();
+      }
+    };
+  }, [handleCreateWorld, handleOpenWorld, handleSave]);
 
   const saveRegistrySnapshot = async (snapshot: RegistrySnapshot): Promise<boolean> => {
     try {
@@ -627,26 +693,29 @@ export function EditorApp() {
           <strong>地图</strong>
           <div className="row">
             <label>元文件路径</label>
-            <input
-              value={metaPath}
-              onChange={(e) => {
-                setMetaPath(e.target.value);
-                worldLoadedRef.current = false;
-                setIsWorldLoaded(false);
-              }}
-            />
+            <input value={metaPath} readOnly />
           </div>
-          <div className="row row-buttons">
-            <button onClick={() => void handleBrowseWorld()}>浏览</button>
-            <button onClick={() => void handleCreateWorld()}>新建</button>
-            <button className="primary" onClick={() => void handleOpenWorld()}>
-              打开
-            </button>
-            <button onClick={() => void handleSave()} disabled={!isWorldLoaded}>
-              保存
-            </button>
-          </div>
+          <div className="status">请使用顶部菜单：新建 / 打开 / 保存</div>
           <div className="status">{status}</div>
+        </div>
+
+        <div className="section">
+          <strong>更新</strong>
+          <div className="status">当前版本：{appVersion}</div>
+          <div className="status">{updateStatus}</div>
+          {updateInfo ? (
+            <div className="status">
+              最新发布：{updateInfo.releaseName} ({updateInfo.latestVersion})
+            </div>
+          ) : null}
+          <div className="row row-buttons">
+            <button onClick={() => void handleCheckUpdates()} disabled={isCheckingUpdate}>
+              {isCheckingUpdate ? "检查中..." : "检查更新"}
+            </button>
+            <button onClick={() => void handleOpenUpdatePage()} disabled={!updateInfo}>
+              打开下载页
+            </button>
+          </div>
         </div>
 
         <div className="section">

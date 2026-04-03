@@ -16,7 +16,7 @@ jobs:
     name: Build Windows x64 Editor EXE
     runs-on: windows-latest
     permissions:
-      contents: read
+      contents: write
 
     steps:
       - name: Checkout
@@ -58,3 +58,13 @@ jobs:
           path: |
             src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
           if-no-files-found: error
+
+      - name: Publish GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: windows-x64-build-${{ github.run_number }}
+          name: Windows x64 Build ${{ github.run_number }}
+          prerelease: true
+          generate_release_notes: true
+          files: |
+            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe

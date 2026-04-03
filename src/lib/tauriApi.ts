@@ -40,3 +40,7 @@ export async function validatePixelPayload(payload: PixelCell): Promise<Validate
 export async function saveWorld(): Promise<void> {
   return invoke("save_world");
 }
+
+export async function openReleaseUrl(url: string): Promise<void> {
+  return invoke("open_release_url", { url });
+}
