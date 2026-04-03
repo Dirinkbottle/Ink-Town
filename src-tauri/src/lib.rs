@@ -328,9 +328,9 @@ fn load_world(state: State<'_, AppState>, meta_path: String) -> Result<LoadWorld
 
     let registry_dir = world_dir
         .parent()
-        .ok_or(AppError::InvalidWorldPath)
-        .map_err(|e| e.to_string())?
-        .join("registry");
+        .map(|p| p.join("registry"))
+        .filter(|p| p.exists())
+        .unwrap_or_else(default_registry_dir);
 
     let world_meta_text = fs::read_to_string(&meta_path).map_err(|e| e.to_string())?;
     let meta: WorldMeta = serde_json::from_str(&world_meta_text).map_err(|e| e.to_string())?;
@@ -470,6 +470,7 @@ fn save_world(state: State<'_, AppState>) -> Result<(), String> {
 #[cfg(feature = "desktop")]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .manage(AppState::default())
         .invoke_handler(tauri::generate_handler![
             load_world,

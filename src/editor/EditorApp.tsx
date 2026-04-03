@@ -1,4 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
+import { open } from "@tauri-apps/plugin-dialog";
 import { CanvasRenderer } from "../renderer/canvasRenderer";
 import type { ChunkCoord, ChunkData, PixelCell, RegistrySnapshot, WorldMeta } from "../renderer/types";
 import { hexToRgb, rgbToHex } from "../lib/color";
@@ -149,6 +150,23 @@ export function EditorApp() {
     }
   };
 
+  const handleBrowseWorld = async (): Promise<void> => {
+    try {
+      const selected = await open({
+        multiple: false,
+        directory: false,
+        filters: [{ name: "World Meta", extensions: ["json"] }]
+      });
+      if (!selected || Array.isArray(selected)) {
+        return;
+      }
+      setMetaPath(selected);
+      setStatus(`Selected map: ${selected}`);
+    } catch (error) {
+      setStatus(`Select file failed: ${String(error)}`);
+    }
+  };
+
   const handleSave = async (): Promise<void> => {
     try {
       await saveWorld();
@@ -245,6 +263,7 @@ export function EditorApp() {
             <input value={metaPath} onChange={(e) => setMetaPath(e.target.value)} />
           </div>
           <div className="row">
+            <button onClick={() => void handleBrowseWorld()}>Browse</button>
             <button className="primary" onClick={() => void handleOpenWorld()}>
               Open
             </button>
