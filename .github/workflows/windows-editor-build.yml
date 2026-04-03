@@ -49,7 +49,7 @@ jobs:
         run: cargo test --manifest-path src-tauri/Cargo.toml
 
       - name: Build Tauri Windows installer (NSIS EXE)
-        run: npx tauri build --features desktop --bundles nsis --target x86_64-pc-windows-msvc
+        run: node node_modules/@tauri-apps/cli/tauri.js build --features desktop --bundles nsis --target x86_64-pc-windows-msvc
 
       - name: Upload EXE artifact
         uses: actions/upload-artifact@v4

@@ -4,14 +4,14 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "dev": "vite",
-    "build": "tsc --noEmit && vite build",
-    "preview": "vite preview",
-    "test": "vitest run",
-    "test:watch": "vitest",
-    "tauri": "tauri",
-    "tauri:dev": "tauri dev --features desktop",
-    "tauri:build": "tauri build --features desktop"
+    "dev": "node node_modules/vite/bin/vite.js",
+    "build": "node node_modules/typescript/bin/tsc --noEmit && node node_modules/vite/bin/vite.js build",
+    "preview": "node node_modules/vite/bin/vite.js preview",
+    "test": "node node_modules/vitest/vitest.mjs run",
+    "test:watch": "node node_modules/vitest/vitest.mjs",
+    "tauri": "node node_modules/@tauri-apps/cli/tauri.js",
+    "tauri:dev": "node node_modules/@tauri-apps/cli/tauri.js dev --features desktop",
+    "tauri:build": "node node_modules/@tauri-apps/cli/tauri.js build --features desktop"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.3.0",
