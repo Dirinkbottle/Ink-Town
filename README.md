@@ -6,7 +6,7 @@ Ink Town V1 is a desktop 2D world editor built with Tauri + React + Rust core.
 
 - World load/render/edit/save loop
 - Infinite chunk map storage (`data/world/chunks/c_x_y.json`)
-- Pixel model with extensible JSON fields (`color`, `material`, `durability`, `attrs`)
+- Pixel model with extensible flat JSON fields (`color`, `material`, `durability`, custom properties)
 - Registry-driven material/attribute/value options (`data/registry/`)
 - Rust-side schema + registry validation
 - Canvas2D dirty-chunk rendering and basic map editor GUI

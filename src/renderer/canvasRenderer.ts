@@ -152,18 +152,12 @@ export class CanvasRenderer {
       return;
     }
 
-    const dirtyNow = [...this.dirty];
     this.dirty.clear();
-    for (const key of dirtyNow) {
-      const chunk = this.chunks.get(key);
-      if (!chunk || !this.isChunkVisible(chunk.coord)) {
-        continue;
-      }
-      this.clearChunkArea(chunk.coord);
-      this.drawChunk(chunk);
-      if (this.showGrid) {
-        this.drawChunkGrid(chunk.coord);
-      }
+    // Full visible redraw on dirty updates avoids grid desync artifacts during brush painting.
+    this.clearCanvas();
+    this.drawVisibleChunks();
+    if (this.showGrid) {
+      this.drawGrid();
     }
   }
 
@@ -265,24 +259,6 @@ export class CanvasRenderer {
       this.ctx.lineTo(this.canvas.width, y);
     }
     this.ctx.stroke();
-  }
-
-  private drawChunkGrid(coord: ChunkCoord): void {
-    const cell = this.getCellSizePx();
-    const chunkPx = this.meta.chunk_size * cell;
-    const sx = (coord.x * this.meta.chunk_size - this.cameraX) * cell;
-    const sy = (coord.y * this.meta.chunk_size - this.cameraY) * cell;
-    this.ctx.strokeStyle = "rgba(0, 124, 255, 0.3)";
-    this.ctx.strokeRect(sx + 0.5, sy + 0.5, chunkPx, chunkPx);
-  }
-
-  private clearChunkArea(coord: ChunkCoord): void {
-    const cell = this.getCellSizePx();
-    const chunkPx = this.meta.chunk_size * cell;
-    const sx = (coord.x * this.meta.chunk_size - this.cameraX) * cell;
-    const sy = (coord.y * this.meta.chunk_size - this.cameraY) * cell;
-    this.ctx.fillStyle = "#ffffff";
-    this.ctx.fillRect(sx, sy, chunkPx, chunkPx);
   }
 
   private clearCanvas(): void {

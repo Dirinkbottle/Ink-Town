@@ -34,22 +34,6 @@ pub struct PixelCell {
     pub properties: HashMap<String, Value>,
 }
 
-impl PixelCell {
-    fn normalize_legacy_shape(&mut self) {
-        if let Some(legacy) = self.properties.remove("attrs") {
-            if let Value::Object(attrs) = legacy {
-                for (k, v) in attrs {
-                    self.properties.entry(k).or_insert(v);
-                }
-            }
-        }
-
-        self.properties.remove("color");
-        self.properties.remove("material");
-        self.properties.remove("durability");
-    }
-}
-
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct ChunkData {
     pub coord: ChunkCoord,
@@ -118,38 +102,6 @@ pub struct PixelPatch {
     pub pixel: PixelCell,
 }
 
-#[derive(Debug, Serialize, Deserialize)]
-struct LegacyRegistryConfig {
-    version: String,
-    materials_file: String,
-    attributes_file: String,
-    value_sets_file: String,
-    schema_file: Option<String>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct LegacyMaterialsFile {
-    materials: Vec<MaterialDefinition>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct LegacyAttributeDefinition {
-    id: String,
-    label: String,
-    value_set: String,
-    required: Option<bool>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct LegacyAttributesFile {
-    attributes: Vec<LegacyAttributeDefinition>,
-}
-
-#[derive(Debug, Serialize, Deserialize)]
-struct LegacyValueSetsFile {
-    value_sets: HashMap<String, Vec<String>>,
-}
-
 #[derive(Debug, Default)]
 struct WorldRuntime {
     world_meta_path: Option<PathBuf>,
@@ -199,7 +151,6 @@ impl WorldRuntime {
 
         let registry = self.registry.clone();
         for pixel in chunk.cells.values_mut() {
-            pixel.normalize_legacy_shape();
             if let Some(snapshot) = registry.as_ref() {
                 apply_property_defaults(pixel, snapshot);
             }
@@ -292,69 +243,16 @@ fn normalize_registry_snapshot(snapshot: &mut RegistrySnapshot) {
     }
 }
 
-fn convert_legacy_registry(
-    version: String,
-    materials: Vec<MaterialDefinition>,
-    attributes: Vec<LegacyAttributeDefinition>,
-    value_sets: HashMap<String, Vec<String>>,
-) -> RegistrySnapshot {
-    let mut properties = Vec::new();
-    for attr in attributes {
-        let options = value_sets.get(&attr.value_set).cloned().unwrap_or_default();
-        if options.is_empty() {
-            properties.push(PropertyDefinition {
-                name: attr.id,
-                label: attr.label,
-                property_type: PropertyType::String,
-                default_value: Value::from(""),
-                enum_values: Vec::new(),
-            });
-        } else {
-            properties.push(PropertyDefinition {
-                name: attr.id,
-                label: attr.label,
-                property_type: PropertyType::Enum,
-                default_value: Value::from(options[0].clone()),
-                enum_values: options,
-            });
-        }
-    }
-
-    RegistrySnapshot {
-        version,
-        materials,
-        properties,
-    }
-}
-
 fn load_registry_from_dir(registry_dir: &Path) -> Result<RegistrySnapshot, AppError> {
     let registry_text = fs::read_to_string(registry_dir.join("registry.json"))?;
     let root: Value = serde_json::from_str(&registry_text)?;
 
-    if root.get("properties").is_some() {
-        let mut snapshot: RegistrySnapshot = serde_json::from_value(root)?;
-        normalize_registry_snapshot(&mut snapshot);
-        validate_registry_snapshot(&snapshot)?;
-        return Ok(snapshot);
+    if root.get("properties").is_none() {
+        return Err(AppError::InvalidRegistry(
+            "registry.json 缺少 properties 字段；仅支持当前格式".to_string(),
+        ));
     }
-
-    let config: LegacyRegistryConfig = serde_json::from_value(root)?;
-    let materials: LegacyMaterialsFile = serde_json::from_str(&fs::read_to_string(
-        registry_dir.join(config.materials_file.clone()),
-    )?)?;
-    let attributes: LegacyAttributesFile = serde_json::from_str(&fs::read_to_string(
-        registry_dir.join(config.attributes_file.clone()),
-    )?)?;
-    let value_sets: LegacyValueSetsFile = serde_json::from_str(&fs::read_to_string(
-        registry_dir.join(config.value_sets_file.clone()),
-    )?)?;
-
-    let mut snapshot = convert_legacy_registry(
-        config.version,
-        materials.materials,
-        attributes.attributes,
-        value_sets.value_sets,
-    );
+    let mut snapshot: RegistrySnapshot = serde_json::from_value(root)?;
     normalize_registry_snapshot(&mut snapshot);
     validate_registry_snapshot(&snapshot)?;
     Ok(snapshot)
@@ -407,7 +305,7 @@ fn validate_registry_snapshot(snapshot: &RegistrySnapshot) -> Result<(), AppErro
         if property.name.trim().is_empty() {
             return Err(AppError::InvalidRegistry("属性名不能为空".to_string()));
         }
-        if matches!(property.name.as_str(), "color" | "material" | "durability" | "attrs") {
+        if matches!(property.name.as_str(), "color" | "material" | "durability") {
             return Err(AppError::InvalidRegistry(format!(
                 "属性名 '{}' 是保留字段",
                 property.name
@@ -521,7 +419,7 @@ fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) 
     }
 
     for (key, value) in &pixel.properties {
-        if matches!(key.as_str(), "color" | "material" | "durability" | "attrs") {
+        if matches!(key.as_str(), "color" | "material" | "durability") {
             errors.push(ValidationError {
                 field: key.clone(),
                 message: "该字段为系统保留字段".to_string(),
@@ -570,7 +468,6 @@ fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) 
 }
 
 fn normalize_and_validate_pixel(pixel: &mut PixelCell, registry: &RegistrySnapshot) -> Result<(), AppError> {
-    pixel.normalize_legacy_shape();
     apply_property_defaults(pixel, registry);
     validate_pixel_with_registry(pixel, registry)
 }
@@ -988,28 +885,6 @@ mod tests {
         assert_eq!(parsed.coord.x, 1);
         assert_eq!(parsed.coord.y, -2);
         assert!(parsed.cells.contains_key("3,4"));
-    }
-
-    #[test]
-    fn historical_chunk_with_attrs_is_compatible() {
-        let old = serde_json::json!({
-          "coord": {"x": 0, "y": 0},
-          "cells": {
-            "0,0": {
-              "color": [1, 2, 3],
-              "material": "soil",
-              "durability": 5,
-              "attrs": {
-                "terrain": "plain"
-              }
-            }
-          }
-        });
-        let mut parsed: ChunkData = serde_json::from_value(old).expect("legacy parse");
-        let pixel = parsed.cells.get_mut("0,0").expect("pixel present");
-        pixel.normalize_legacy_shape();
-        assert_eq!(pixel.properties.get("terrain"), Some(&Value::from("plain")));
-        assert!(!pixel.properties.contains_key("attrs"));
     }
 
     #[test]

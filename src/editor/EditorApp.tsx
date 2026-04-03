@@ -524,7 +524,7 @@ export function EditorApp() {
       setStatus("属性名和属性标签不能为空");
       return;
     }
-    if (corePixelKeys.has(name) || name === "attrs") {
+    if (corePixelKeys.has(name)) {
       setStatus(`属性名 '${name}' 是保留字段`);
       return;
     }
