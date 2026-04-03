@@ -23,7 +23,10 @@ import type { UpdateCheckResult } from "../updater/types";
 import { PanelSection } from "./components/PanelSection";
 import { SidebarHeader } from "./components/SidebarHeader";
 import { InspectSection } from "./components/sections/InspectSection";
+import { BrushPropertiesSection } from "./components/sections/BrushPropertiesSection";
+import { BrushSection } from "./components/sections/BrushSection";
 import { MapStatusSection } from "./components/sections/MapStatusSection";
+import { RegistryEditorSection } from "./components/sections/RegistryEditorSection";
 import { UpdateSection } from "./components/sections/UpdateSection";
 import { ViewSection } from "./components/sections/ViewSection";
 import { corePixelKeys, defaultMeta, defaultPixel } from "./constants";
@@ -661,188 +664,51 @@ export function EditorApp() {
             </PanelSection>
 
             <PanelSection title="画笔" collapsed={sectionCollapsed.brush} onToggle={() => toggleSection("brush")}>
-              <div className="row">
-                <label>颜色</label>
-                <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} />
-              </div>
-              <div className="row">
-                <label>材质</label>
-                <select value={brushMaterial} onChange={(e) => setBrushMaterial(e.target.value)}>
-                  {(registry?.materials ?? []).map((m) => (
-                    <option key={m.id} value={m.id}>
-                      {m.label} ({m.id})
-                    </option>
-                  ))}
-                </select>
-              </div>
-              <div className="row">
-                <label>耐久</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={brushDurability}
-                  onChange={(e) => setBrushDurability(Math.max(0, Number(e.target.value) || 0))}
-                />
-              </div>
-              <div className="row">
-                <label>画笔大小</label>
-                <input
-                  type="range"
-                  min={1}
-                  max={15}
-                  step={1}
-                  value={brushSize}
-                  onChange={(e) => setBrushSize(Number(e.target.value) || 1)}
-                />
-                <span className="value-badge">{brushSize}</span>
-              </div>
+              <BrushSection
+                brushColor={brushColor}
+                brushMaterial={brushMaterial}
+                brushDurability={brushDurability}
+                brushSize={brushSize}
+                materials={registry?.materials ?? []}
+                onChangeColor={setBrushColor}
+                onChangeMaterial={setBrushMaterial}
+                onChangeDurability={(value) => setBrushDurability(Math.max(0, value))}
+                onChangeBrushSize={(value) => setBrushSize(Math.max(1, Math.floor(value)))}
+              />
             </PanelSection>
 
             <PanelSection title="画笔属性" collapsed={sectionCollapsed.brushProps} onToggle={() => toggleSection("brushProps")}>
-              {(registry?.properties ?? []).map((property) => {
-                const value = brushProperties[property.name];
-                if (property.type === "enum") {
-                  return (
-                    <div className="row" key={property.name}>
-                      <label>{property.label}</label>
-                      <select
-                        value={typeof value === "string" ? value : String(property.default_value ?? "")}
-                        onChange={(e) => setBrushProperties((prev) => ({ ...prev, [property.name]: e.target.value }))}
-                      >
-                        {(enumOptions[property.name] ?? []).map((option) => (
-                          <option key={option} value={option}>
-                            {option}
-                          </option>
-                        ))}
-                      </select>
-                    </div>
-                  );
-                }
-
-                if (property.type === "bool") {
-                  return (
-                    <div className="row" key={property.name}>
-                      <label>{property.label}</label>
-                      <input
-                        type="checkbox"
-                        checked={Boolean(value ?? property.default_value)}
-                        onChange={(e) => setBrushProperties((prev) => ({ ...prev, [property.name]: e.target.checked }))}
-                      />
-                    </div>
-                  );
-                }
-
-                const isNumber = property.type === "int" || property.type === "float";
-                return (
-                  <div className="row" key={property.name}>
-                    <label>{property.label}</label>
-                    <input
-                      type={isNumber ? "number" : "text"}
-                      step={property.type === "float" ? "0.01" : "1"}
-                      value={value === undefined ? String(property.default_value ?? "") : String(value)}
-                      onChange={(e) => {
-                        const nextRaw = e.target.value;
-                        if (isNumber) {
-                          const parsed = Number(nextRaw);
-                          if (!Number.isFinite(parsed)) {
-                            setBrushProperties((prev) => ({ ...prev, [property.name]: 0 }));
-                            return;
-                          }
-                          const normalized = property.type === "int" ? Math.trunc(parsed) : parsed;
-                          setBrushProperties((prev) => ({ ...prev, [property.name]: normalized }));
-                          return;
-                        }
-                        setBrushProperties((prev) => ({ ...prev, [property.name]: nextRaw }));
-                      }}
-                    />
-                  </div>
-                );
-              })}
+              <BrushPropertiesSection
+                properties={registry?.properties ?? []}
+                brushProperties={brushProperties}
+                enumOptions={enumOptions}
+                onChangeProperty={(name, value) => setBrushProperties((prev) => ({ ...prev, [name]: value }))}
+              />
             </PanelSection>
 
             <PanelSection title="索引库编辑" collapsed={sectionCollapsed.registry} onToggle={() => toggleSection("registry")}>
-              <div className="row">
-                <label>版本号</label>
-                <input value={registryVersionInput} onChange={(e) => setRegistryVersionInput(e.target.value)} />
-              </div>
-
-              <div className="sub-title">新增材质</div>
-              <div className="row">
-                <label>标识</label>
-                <input value={newMaterialId} onChange={(e) => setNewMaterialId(e.target.value)} placeholder="例如 metal" />
-              </div>
-              <div className="row">
-                <label>名称</label>
-                <input
-                  value={newMaterialLabel}
-                  onChange={(e) => setNewMaterialLabel(e.target.value)}
-                  placeholder="例如 Metal"
-                />
-              </div>
-              <div className="row">
-                <label>最大耐久</label>
-                <input
-                  type="number"
-                  min={0}
-                  value={newMaterialMaxDurability}
-                  onChange={(e) => setNewMaterialMaxDurability(Math.max(0, Number(e.target.value) || 0))}
-                />
-              </div>
-              <div className="row row-buttons">
-                <button onClick={() => void handleAddMaterial()}>添加材质</button>
-              </div>
-
-              <div className="sub-title">新增属性</div>
-              <div className="row">
-                <label>属性名</label>
-                <input value={newPropertyName} onChange={(e) => setNewPropertyName(e.target.value)} placeholder="例如 biome" />
-              </div>
-              <div className="row">
-                <label>属性标签</label>
-                <input
-                  value={newPropertyLabel}
-                  onChange={(e) => setNewPropertyLabel(e.target.value)}
-                  placeholder="例如 Biome"
-                />
-              </div>
-              <div className="row">
-                <label>类型</label>
-                <select value={newPropertyType} onChange={(e) => setNewPropertyType(e.target.value as PropertyType)}>
-                  <option value="int">int</option>
-                  <option value="float">float</option>
-                  <option value="bool">bool</option>
-                  <option value="string">string</option>
-                  <option value="enum">enum</option>
-                </select>
-              </div>
-              <div className="row">
-                <label>默认值</label>
-                {newPropertyType === "bool" ? (
-                  <select value={newPropertyDefault || "false"} onChange={(e) => setNewPropertyDefault(e.target.value)}>
-                    <option value="false">false</option>
-                    <option value="true">true</option>
-                  </select>
-                ) : (
-                  <input
-                    value={newPropertyDefault}
-                    onChange={(e) => setNewPropertyDefault(e.target.value)}
-                    placeholder={newPropertyType === "enum" ? "必须在枚举可选值中" : "输入默认值"}
-                  />
-                )}
-              </div>
-              {newPropertyType === "enum" ? (
-                <div className="row">
-                  <label>枚举值</label>
-                  <input
-                    value={newPropertyEnumValues}
-                    onChange={(e) => setNewPropertyEnumValues(e.target.value)}
-                    placeholder="a,b,c"
-                  />
-                </div>
-              ) : null}
-              <div className="row row-buttons">
-                <button onClick={() => void handleAddProperty()}>添加属性</button>
-              </div>
+              <RegistryEditorSection
+                registryVersionInput={registryVersionInput}
+                newMaterialId={newMaterialId}
+                newMaterialLabel={newMaterialLabel}
+                newMaterialMaxDurability={newMaterialMaxDurability}
+                newPropertyName={newPropertyName}
+                newPropertyLabel={newPropertyLabel}
+                newPropertyType={newPropertyType}
+                newPropertyDefault={newPropertyDefault}
+                newPropertyEnumValues={newPropertyEnumValues}
+                onSetRegistryVersionInput={setRegistryVersionInput}
+                onSetNewMaterialId={setNewMaterialId}
+                onSetNewMaterialLabel={setNewMaterialLabel}
+                onSetNewMaterialMaxDurability={setNewMaterialMaxDurability}
+                onAddMaterial={() => void handleAddMaterial()}
+                onSetNewPropertyName={setNewPropertyName}
+                onSetNewPropertyLabel={setNewPropertyLabel}
+                onSetNewPropertyType={setNewPropertyType}
+                onSetNewPropertyDefault={setNewPropertyDefault}
+                onSetNewPropertyEnumValues={setNewPropertyEnumValues}
+                onAddProperty={() => void handleAddProperty()}
+              />
             </PanelSection>
 
             <PanelSection title="检视" collapsed={sectionCollapsed.inspect} onToggle={() => toggleSection("inspect")}>
