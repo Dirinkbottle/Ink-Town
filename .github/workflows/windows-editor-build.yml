@@ -1,4 +1,4 @@
-name: Build Windows Editor (x64)
+name: Build Windows Apps (x64)
 
 on:
   push:
@@ -8,12 +8,12 @@ on:
   workflow_dispatch:
 
 concurrency:
-  group: windows-editor-${{ github.ref }}
+  group: windows-apps-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-windows-x64:
-    name: Build Windows x64 Editor EXE
+    name: Build Windows x64 Editor + Game EXE
     runs-on: windows-latest
     permissions:
       contents: write
@@ -37,7 +37,8 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            src-tauri -> target
+            . -> target
+            src-tauri -> src-tauri/target
 
       - name: Install frontend dependencies
         run: npm ci
@@ -45,18 +46,52 @@ jobs:
       - name: Run frontend tests
         run: npm run test
 
-      - name: Run Rust core tests
-        run: cargo test --manifest-path src-tauri/Cargo.toml
+      - name: Run Rust tests
+        run: npm run rust:test
 
       - name: Build Tauri Windows installer (NSIS EXE)
         run: node node_modules/@tauri-apps/cli/tauri.js build --features desktop --bundles nsis --target x86_64-pc-windows-msvc
 
-      - name: Upload EXE artifact
+      - name: Build Game Windows EXE
+        run: cargo build -p ink-town-game --release --target x86_64-pc-windows-msvc --manifest-path Cargo.toml
+
+      - name: Collect artifacts
+        shell: pwsh
+        run: |
+          New-Item -Path artifacts -ItemType Directory -Force | Out-Null
+
+          $editorInstaller = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
+          if (-not $editorInstaller) {
+            Write-Error "Editor installer not found in expected path."
+            exit 1
+          }
+          Copy-Item $editorInstaller.FullName artifacts/Ink-Town-Editor-x64-Installer.exe -Force
+
+          $gameCandidates = @(
+            "target/x86_64-pc-windows-msvc/release/ink-town-game.exe",
+            "target/x86_64-pc-windows-msvc/release/ink_town_game.exe"
+          )
+          $gameExe = $gameCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
+          if (-not $gameExe) {
+            Write-Error "Game executable not found in expected paths."
+            exit 1
+          }
+          Copy-Item $gameExe artifacts/Ink-Town-Game-x64.exe -Force
+
+      - name: Upload Editor EXE artifact
         uses: actions/upload-artifact@v4
         with:
           name: ink-town-editor-windows-x64-exe
           path: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            artifacts/Ink-Town-Editor-x64-Installer.exe
+          if-no-files-found: error
+
+      - name: Upload Game EXE artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: ink-town-game-windows-x64-exe
+          path: |
+            artifacts/Ink-Town-Game-x64.exe
           if-no-files-found: error
 
       - name: Publish GitHub Release
@@ -67,4 +102,4 @@ jobs:
           prerelease: true
           generate_release_notes: true
           files: |
-            src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe
+            artifacts/*.exe
