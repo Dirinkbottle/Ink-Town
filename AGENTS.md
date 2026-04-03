@@ -124,3 +124,9 @@ To check whether embeddings exist, inspect `.gitnexus/meta.json` — the `stats.
 - Keep app/product naming in English (`Ink Town Editor`).
 - Keep domain property identifiers and material IDs as canonical names (do not force full Chinese localization).
 - Chinese can be used for operational UI copy where it improves usability.
+
+### Backward Compatibility Policy
+
+- Going forward, **do not add backward-compatibility code** for new updates.
+- Use latest schema/protocol as the single source of truth; fail fast on old/invalid formats.
+- When making breaking format changes, prefer one-time migration tooling/scripts over long-term compatibility branches in runtime code.

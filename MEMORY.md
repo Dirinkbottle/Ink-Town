@@ -27,3 +27,9 @@
 ## Platform Priority
 
 - Primary runtime target: Windows desktop editor.
+
+## Compatibility Policy
+
+- Future updates should not introduce backward-compatibility branches in runtime logic.
+- Keep only the latest data format and command contract.
+- If migration is needed, implement an explicit migration script/tool rather than embedding permanent legacy handling.
