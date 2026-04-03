@@ -187,6 +187,8 @@ enum AppError {
     Validation { errors: Vec<ValidationError> },
     #[error("invalid world path")]
     InvalidWorldPath,
+    #[error("invalid registry: {0}")]
+    InvalidRegistry(String),
     #[error("state lock poisoned")]
     LockPoisoned,
 }
@@ -225,6 +227,117 @@ fn load_registry_from_dir(registry_dir: &Path) -> Result<RegistrySnapshot, AppEr
         value_sets: value_sets.value_sets,
         schema,
     })
+}
+
+fn validate_registry_snapshot(snapshot: &RegistrySnapshot) -> Result<(), AppError> {
+    if snapshot.version.trim().is_empty() {
+        return Err(AppError::InvalidRegistry("version cannot be empty".to_string()));
+    }
+
+    let mut material_ids: HashSet<&str> = HashSet::new();
+    for material in &snapshot.materials {
+        if material.id.trim().is_empty() {
+            return Err(AppError::InvalidRegistry("material id cannot be empty".to_string()));
+        }
+        if !material_ids.insert(material.id.as_str()) {
+            return Err(AppError::InvalidRegistry(format!(
+                "duplicate material id '{}'",
+                material.id
+            )));
+        }
+    }
+
+    let mut attr_ids: HashSet<&str> = HashSet::new();
+    for attr in &snapshot.attributes {
+        if attr.id.trim().is_empty() {
+            return Err(AppError::InvalidRegistry("attribute id cannot be empty".to_string()));
+        }
+        if attr.value_set.trim().is_empty() {
+            return Err(AppError::InvalidRegistry(format!(
+                "attribute '{}' has empty value_set",
+                attr.id
+            )));
+        }
+        if !attr_ids.insert(attr.id.as_str()) {
+            return Err(AppError::InvalidRegistry(format!(
+                "duplicate attribute id '{}'",
+                attr.id
+            )));
+        }
+        if !snapshot.value_sets.contains_key(&attr.value_set) {
+            return Err(AppError::InvalidRegistry(format!(
+                "attribute '{}' references missing value_set '{}'",
+                attr.id, attr.value_set
+            )));
+        }
+    }
+
+    for (set_id, values) in &snapshot.value_sets {
+        if set_id.trim().is_empty() {
+            return Err(AppError::InvalidRegistry("value_set id cannot be empty".to_string()));
+        }
+        let mut unique = HashSet::new();
+        for value in values {
+            let trimmed = value.trim();
+            if trimmed.is_empty() {
+                return Err(AppError::InvalidRegistry(format!(
+                    "value_set '{}' contains empty value",
+                    set_id
+                )));
+            }
+            if !unique.insert(trimmed.to_string()) {
+                return Err(AppError::InvalidRegistry(format!(
+                    "value_set '{}' contains duplicate value '{}'",
+                    set_id, trimmed
+                )));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+fn write_registry_to_dir(registry_dir: &Path, snapshot: &RegistrySnapshot) -> Result<(), AppError> {
+    fs::create_dir_all(registry_dir)?;
+    let registry_path = registry_dir.join("registry.json");
+    let mut config = if registry_path.exists() {
+        let text = fs::read_to_string(&registry_path)?;
+        serde_json::from_str::<RegistryConfig>(&text)?
+    } else {
+        RegistryConfig {
+            version: snapshot.version.clone(),
+            materials_file: "materials.json".to_string(),
+            attributes_file: "attributes.json".to_string(),
+            value_sets_file: "value_sets.json".to_string(),
+            schema_file: "pixel.schema.json".to_string(),
+        }
+    };
+    config.version = snapshot.version.clone();
+
+    fs::write(
+        registry_dir.join(&config.materials_file),
+        serde_json::to_string_pretty(&MaterialsFile {
+            materials: snapshot.materials.clone(),
+        })?,
+    )?;
+    fs::write(
+        registry_dir.join(&config.attributes_file),
+        serde_json::to_string_pretty(&AttributesFile {
+            attributes: snapshot.attributes.clone(),
+        })?,
+    )?;
+    fs::write(
+        registry_dir.join(&config.value_sets_file),
+        serde_json::to_string_pretty(&ValueSetsFile {
+            value_sets: snapshot.value_sets.clone(),
+        })?,
+    )?;
+    fs::write(
+        registry_dir.join(&config.schema_file),
+        serde_json::to_string_pretty(&snapshot.schema)?,
+    )?;
+    fs::write(registry_path, serde_json::to_string_pretty(&config)?)?;
+    Ok(())
 }
 
 fn validate_pixel_with_schema(pixel: &PixelCell, schema: &Value) -> Result<(), AppError> {
@@ -416,6 +529,27 @@ fn load_registry(state: State<'_, AppState>) -> Result<RegistrySnapshot, String>
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
+fn save_registry(state: State<'_, AppState>, snapshot: RegistrySnapshot) -> Result<RegistrySnapshot, String> {
+    validate_registry_snapshot(&snapshot).map_err(|e| e.to_string())?;
+
+    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+    let dir = runtime
+        .registry_dir
+        .clone()
+        .unwrap_or_else(default_registry_dir);
+    write_registry_to_dir(&dir, &snapshot).map_err(|e| e.to_string())?;
+
+    if let Some(meta) = runtime.meta.as_mut() {
+        meta.registry_version = snapshot.version.clone();
+    }
+
+    runtime.registry_dir = Some(dir);
+    runtime.registry = Some(snapshot.clone());
+    Ok(snapshot)
+}
+
+#[cfg(feature = "desktop")]
+#[tauri::command]
 fn validate_pixel_payload(state: State<'_, AppState>, payload: PixelCell) -> Result<ValidatePixelResponse, String> {
     let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
     if runtime.registry.is_none() {
@@ -477,6 +611,7 @@ pub fn run() {
             load_chunks,
             apply_pixel_patch,
             load_registry,
+            save_registry,
             validate_pixel_payload,
             save_world
         ])

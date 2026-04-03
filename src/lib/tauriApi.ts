@@ -25,6 +25,10 @@ export async function loadRegistry(): Promise<RegistrySnapshot> {
   return invoke("load_registry");
 }
 
+export async function saveRegistry(snapshot: RegistrySnapshot): Promise<RegistrySnapshot> {
+  return invoke("save_registry", { snapshot });
+}
+
 export async function validatePixelPayload(payload: PixelCell): Promise<ValidatePixelResponse> {
   return invoke("validate_pixel_payload", { payload });
 }
