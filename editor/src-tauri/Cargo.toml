@@ -22,4 +22,4 @@ tauri-build = { version = "2.0.2", optional = true, features = [] }
 [dependencies]
 tauri = { version = "2.1.1", optional = true, features = [] }
 tauri-plugin-dialog = { version = "2.0.1", optional = true }
-world-core = { path = "../crates/world-core" }
+world-core = { path = "../../shared/world-core" }

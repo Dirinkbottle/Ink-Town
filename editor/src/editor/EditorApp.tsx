@@ -39,7 +39,7 @@ import {
 } from "./utils/propertyHelpers";
 
 export function EditorApp() {
-  const [metaPath, setMetaPath] = useState("data/world/world.json");
+  const [metaPath, setMetaPath] = useState("../data/world/world.json");
   const [meta, setMeta] = useState<WorldMeta>(defaultMeta);
   const [registry, setRegistry] = useState<RegistrySnapshot | null>(null);
   const [chunks, setChunks] = useState<Map<string, ChunkData>>(new Map());

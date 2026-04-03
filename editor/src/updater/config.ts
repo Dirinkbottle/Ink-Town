@@ -1,6 +1,6 @@
 import type { GithubUpdateConfig } from "./types";
 
-const FALLBACK_OWNER = "inkbottle";
+const FALLBACK_OWNER = "Dirinkbottle";
 const FALLBACK_REPO = "Ink-Town";
 
 export function getGithubUpdateConfig(): GithubUpdateConfig {

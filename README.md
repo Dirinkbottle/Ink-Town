@@ -1,90 +1,86 @@
-# Ink Town V1
+# Ink Town
 
-Ink Town V1 now includes two desktop apps in one repository:
+仓库已按项目职责拆分为独立目录：
 
-- `Ink Town Editor` (Tauri + React): map editing
-- `Ink Town Game` (Rust + Bevy): observer simulator with 20 NPC planning loop
+- `editor/`: 地图编辑器（Tauri + React + TypeScript）
+- `game/`: 主游戏观察器（Rust + Bevy）
+- `shared/`: 共用 Rust 核心库（world-core / sim-core）
+- `data/`: 世界数据与索引库（供 editor / game 共同读取）
 
-## Architecture
+## 目录结构
 
-Rust workspace modules:
+- `editor/src/`: 编辑器前端
+- `editor/src-tauri/`: 编辑器 Rust 后端
+- `game/src/`: 游戏客户端
+- `shared/world-core/`: 世界模型、chunk 读写、registry 校验
+- `shared/sim-core/`: NPC 事件队列、冲突重排、观测压缩、Schema 校验
 
-- `crates/world-core`: shared world model, chunk IO, registry validation, pixel patch application
-- `crates/sim-core`: event queue engine, conflict detection/replan, observation compression, planner schema validation
-- `src-tauri`: editor desktop shell and command bridge (delegates to `world-core`)
-- `apps/game-client`: Bevy observer client + LLM gateway
+## Editor
 
-Frontend editor modules:
-
-- `src/renderer/`: Canvas renderer
-- `src/editor/`: editor GUI
-
-Data:
-
-- `data/world/`: `world.json` + chunk files (`chunks/c_x_y.json`)
-- `data/registry/`: registry schema (`registry.json`)
-
-## Commands
-
-Install JS dependencies:
+安装依赖（在 `editor/` 下）：
 
 ```bash
+cd editor
 npm install
 ```
 
-Editor frontend checks:
+前端测试与构建：
 
 ```bash
 npm run test
 npm run build
 ```
 
-Rust tests (`world-core`, `sim-core`, editor tauri layer):
+Rust 侧测试（含 shared crates + editor tauri）：
 
 ```bash
 npm run rust:test
 ```
 
-Run editor:
+运行编辑器：
 
 ```bash
 npm run tauri:dev
 ```
 
-Build editor:
+构建编辑器安装包：
 
 ```bash
 npm run tauri:build
 ```
 
-Check game app compile:
+## Game
+
+编译检查：
 
 ```bash
-npm run game:check
+cargo check --manifest-path game/Cargo.toml
 ```
 
-Run game app:
+运行：
 
 ```bash
-npm run game:run
+cargo run --manifest-path game/Cargo.toml
 ```
 
-## Game Runtime Defaults
+默认参数：
 
-- Render FPS: unlimited by default (`INK_TOWN_RENDER_FPS=30|60|120|unlimited`)
-- Logic tick: 10Hz fixed (`INK_TOWN_LOGIC_HZ`)
-- NPC count: 20 (`INK_TOWN_NPC_COUNT`)
-- World meta path: `data/world/world.json` (`INK_TOWN_WORLD_META`)
-- LLM provider:
-  - If `OPENAI_API_KEY` is set, uses OpenAI-compatible gateway
-  - Otherwise uses built-in mock provider
+- 渲染帧率：无限制（`INK_TOWN_RENDER_FPS=30|60|120|unlimited`）
+- 逻辑 Tick：`10Hz`（`INK_TOWN_LOGIC_HZ`）
+- NPC 数量：`20`（`INK_TOWN_NPC_COUNT`）
+- 默认地图：`../data/world/world.json`（可用 `INK_TOWN_WORLD_META` 覆盖）
+- LLM：存在 `OPENAI_API_KEY` 时走 OpenAI 兼容网关，否则用 mock provider
 
-## GitHub CI
+## CI
 
-- Workflow: `.github/workflows/windows-editor-build.yml`
-- Current target: Windows x64 editor NSIS EXE artifact + release draft
+工作流：`.github/workflows/windows-editor-build.yml`
 
-## Notes
+当前会自动构建并发布：
 
-- Runtime format policy is strict current-format only (no legacy compatibility branches).
-- If future format changes are needed, use explicit migration scripts rather than runtime fallback code.
+- Editor Windows x64 安装包
+- Game Windows x64 可执行文件
+
+## 版本策略
+
+- 运行时仅支持当前格式，不追加向后兼容分支。
+- 格式升级通过迁移脚本处理，不在 runtime 内维护 legacy fallback。

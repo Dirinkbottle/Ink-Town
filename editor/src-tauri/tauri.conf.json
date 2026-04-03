@@ -4,8 +4,8 @@
   "version": "0.1.0",
   "identifier": "com.inktown.editor",
   "build": {
-    "beforeDevCommand": "npm run dev",
-    "beforeBuildCommand": "npm run build",
+    "beforeDevCommand": "npm --prefix .. run dev",
+    "beforeBuildCommand": "npm --prefix .. run build",
     "devUrl": "http://localhost:5173",
     "frontendDist": "../dist",
     "features": ["desktop"]

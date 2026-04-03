@@ -1,8 +1,14 @@
 node_modules/
+editor/node_modules/
 dist/
+editor/dist/
 .vite/
 coverage/
 *.log
 .DS_Store
-src-tauri/target/
-src-tauri/gen/
+target/
+game/target/
+editor/src-tauri/target/
+editor/src-tauri/gen/
+shared/**/Cargo.lock
+.gitnexus

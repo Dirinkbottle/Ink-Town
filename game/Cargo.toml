@@ -1,0 +1,38 @@
+[package]
+name = "ink-town-game"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["Ink Town"]
+
+[dependencies]
+bevy = { version = "0.14", default-features = false, features = [
+  "animation",
+  "bevy_asset",
+  "bevy_core_pipeline",
+  "bevy_gizmos",
+  "bevy_render",
+  "bevy_sprite",
+  "bevy_text",
+  "bevy_ui",
+  "bevy_winit",
+  "default_font",
+  "multi_threaded",
+  "png",
+  "x11",
+  "wayland"
+] }
+bevy_egui = "0.29"
+async-trait = "0.1"
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+tokio = { version = "1.41", features = ["rt-multi-thread", "macros", "time", "sync"] }
+reqwest = { version = "0.12", default-features = false, features = ["json", "rustls-tls"] }
+thiserror = "2.0"
+anyhow = "1.0"
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["fmt", "env-filter"] }
+rand = "0.8"
+
+world-core = { path = "../shared/world-core" }
+sim-core = { path = "../shared/sim-core" }

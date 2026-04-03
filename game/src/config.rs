@@ -32,7 +32,7 @@ pub struct GameConfig {
 impl Default for GameConfig {
     fn default() -> Self {
         Self {
-            world_meta_path: PathBuf::from("data/world/world.json"),
+            world_meta_path: PathBuf::from("../data/world/world.json"),
             render_fps: RenderFps::Unlimited,
             logic_hz: 10.0,
             npc_count: 20,

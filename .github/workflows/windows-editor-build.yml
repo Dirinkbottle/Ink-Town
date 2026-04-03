@@ -27,6 +27,7 @@ jobs:
         with:
           node-version: 20
           cache: npm
+          cache-dependency-path: editor/package-lock.json
 
       - name: Setup Rust
         uses: dtolnay/rust-toolchain@stable
@@ -37,23 +38,29 @@ jobs:
         uses: Swatinem/rust-cache@v2
         with:
           workspaces: |
-            . -> target
-            src-tauri -> src-tauri/target
+            editor/src-tauri -> editor/src-tauri/target
+            game -> game/target
+            shared/world-core -> shared/world-core/target
+            shared/sim-core -> shared/sim-core/target
 
       - name: Install frontend dependencies
         run: npm ci
+        working-directory: editor
 
       - name: Run frontend tests
         run: npm run test
+        working-directory: editor
 
       - name: Run Rust tests
         run: npm run rust:test
+        working-directory: editor
 
       - name: Build Tauri Windows installer (NSIS EXE)
         run: node node_modules/@tauri-apps/cli/tauri.js build --features desktop --bundles nsis --target x86_64-pc-windows-msvc
+        working-directory: editor
 
       - name: Build Game Windows EXE
-        run: cargo build -p ink-town-game --release --target x86_64-pc-windows-msvc --manifest-path Cargo.toml
+        run: cargo build --release --target x86_64-pc-windows-msvc --manifest-path game/Cargo.toml
 
       - name: Collect artifacts
         shell: pwsh
@@ -61,7 +68,7 @@ jobs:
           New-Item -Path artifacts -ItemType Directory -Force | Out-Null
 
           $editorCandidates = @()
-          $editorCandidates += Get-ChildItem -Path "src-tauri/target" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "[\\/]+bundle[\\/]+nsis[\\/]+" }
+          $editorCandidates += Get-ChildItem -Path "editor/src-tauri/target" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "[\\/]+bundle[\\/]+nsis[\\/]+" }
           $editorCandidates += Get-ChildItem -Path "target" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "[\\/]+bundle[\\/]+nsis[\\/]+" }
           $editorInstaller = $editorCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $editorInstaller) {
@@ -73,6 +80,8 @@ jobs:
           $gameCandidates = @(
             "target/x86_64-pc-windows-msvc/release/ink-town-game.exe",
             "target/x86_64-pc-windows-msvc/release/ink_town_game.exe",
+            "game/target/x86_64-pc-windows-msvc/release/ink-town-game.exe",
+            "game/target/x86_64-pc-windows-msvc/release/ink_town_game.exe",
             "target/release/ink-town-game.exe",
             "target/release/ink_town_game.exe"
           )
