@@ -20,15 +20,7 @@ import { buildAttributeOptions, buildPixelPatch, chunkKey, markDirtyChunks, worl
 import { getGithubUpdateConfig } from "../updater/config";
 import { checkGithubReleaseUpdate } from "../updater/githubReleaseUpdater";
 import type { UpdateCheckResult } from "../updater/types";
-import { PanelSection } from "./components/PanelSection";
-import { SidebarHeader } from "./components/SidebarHeader";
-import { InspectSection } from "./components/sections/InspectSection";
-import { BrushPropertiesSection } from "./components/sections/BrushPropertiesSection";
-import { BrushSection } from "./components/sections/BrushSection";
-import { MapStatusSection } from "./components/sections/MapStatusSection";
-import { RegistryEditorSection } from "./components/sections/RegistryEditorSection";
-import { UpdateSection } from "./components/sections/UpdateSection";
-import { ViewSection } from "./components/sections/ViewSection";
+import { EditorSidebar } from "./components/EditorSidebar";
 import { corePixelKeys, defaultMeta, defaultPixel } from "./constants";
 import type { PanelSectionId } from "./types/panel";
 import {
@@ -631,97 +623,59 @@ export function EditorApp() {
 
   return (
     <div className={`app ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
-      <aside className="sidebar">
-        <SidebarHeader collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((prev) => !prev)} />
-
-        {sidebarCollapsed ? (
-          <div className="sidebar-collapsed-help">点击右上角按钮展开功能栏</div>
-        ) : (
-          <>
-            <PanelSection title="地图" collapsed={sectionCollapsed.map} onToggle={() => toggleSection("map")}>
-              <MapStatusSection metaPath={metaPath} status={status} />
-            </PanelSection>
-
-            <PanelSection title="更新" collapsed={sectionCollapsed.update} onToggle={() => toggleSection("update")}>
-              <UpdateSection
-                appVersion={appVersion}
-                updateStatus={updateStatus}
-                updateInfo={updateInfo}
-                isCheckingUpdate={isCheckingUpdate}
-                onCheckUpdate={() => void handleCheckUpdates()}
-                onOpenUpdatePage={() => void handleOpenUpdatePage()}
-              />
-            </PanelSection>
-
-            <PanelSection title="视角" collapsed={sectionCollapsed.view} onToggle={() => toggleSection("view")}>
-              <ViewSection
-                cameraX={cameraInfo.x}
-                cameraY={cameraInfo.y}
-                zoom={cameraInfo.zoom}
-                showGrid={showGrid}
-                onToggleGrid={setShowGrid}
-              />
-            </PanelSection>
-
-            <PanelSection title="画笔" collapsed={sectionCollapsed.brush} onToggle={() => toggleSection("brush")}>
-              <BrushSection
-                brushColor={brushColor}
-                brushMaterial={brushMaterial}
-                brushDurability={brushDurability}
-                brushSize={brushSize}
-                materials={registry?.materials ?? []}
-                onChangeColor={setBrushColor}
-                onChangeMaterial={setBrushMaterial}
-                onChangeDurability={(value) => setBrushDurability(Math.max(0, value))}
-                onChangeBrushSize={(value) => setBrushSize(Math.max(1, Math.floor(value)))}
-              />
-            </PanelSection>
-
-            <PanelSection title="画笔属性" collapsed={sectionCollapsed.brushProps} onToggle={() => toggleSection("brushProps")}>
-              <BrushPropertiesSection
-                properties={registry?.properties ?? []}
-                brushProperties={brushProperties}
-                enumOptions={enumOptions}
-                onChangeProperty={(name, value) => setBrushProperties((prev) => ({ ...prev, [name]: value }))}
-              />
-            </PanelSection>
-
-            <PanelSection title="索引库编辑" collapsed={sectionCollapsed.registry} onToggle={() => toggleSection("registry")}>
-              <RegistryEditorSection
-                registryVersionInput={registryVersionInput}
-                newMaterialId={newMaterialId}
-                newMaterialLabel={newMaterialLabel}
-                newMaterialMaxDurability={newMaterialMaxDurability}
-                newPropertyName={newPropertyName}
-                newPropertyLabel={newPropertyLabel}
-                newPropertyType={newPropertyType}
-                newPropertyDefault={newPropertyDefault}
-                newPropertyEnumValues={newPropertyEnumValues}
-                onSetRegistryVersionInput={setRegistryVersionInput}
-                onSetNewMaterialId={setNewMaterialId}
-                onSetNewMaterialLabel={setNewMaterialLabel}
-                onSetNewMaterialMaxDurability={setNewMaterialMaxDurability}
-                onAddMaterial={() => void handleAddMaterial()}
-                onSetNewPropertyName={setNewPropertyName}
-                onSetNewPropertyLabel={setNewPropertyLabel}
-                onSetNewPropertyType={setNewPropertyType}
-                onSetNewPropertyDefault={setNewPropertyDefault}
-                onSetNewPropertyEnumValues={setNewPropertyEnumValues}
-                onAddProperty={() => void handleAddProperty()}
-              />
-            </PanelSection>
-
-            <PanelSection title="检视" collapsed={sectionCollapsed.inspect} onToggle={() => toggleSection("inspect")}>
-              <InspectSection
-                selectedCoord={selectedCoord}
-                selectedPixel={selectedPixel}
-                selectedDynamicProps={selectedDynamicProps}
-                formatPropertyValue={formatPropertyValue}
-              />
-            </PanelSection>
-          </>
-        )}
-      </aside>
+      <EditorSidebar
+        sidebarCollapsed={sidebarCollapsed}
+        sectionCollapsed={sectionCollapsed}
+        onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
+        onToggleSection={toggleSection}
+        metaPath={metaPath}
+        status={status}
+        appVersion={appVersion}
+        updateStatus={updateStatus}
+        updateInfo={updateInfo}
+        isCheckingUpdate={isCheckingUpdate}
+        onCheckUpdates={() => void handleCheckUpdates()}
+        onOpenUpdatePage={() => void handleOpenUpdatePage()}
+        cameraInfo={cameraInfo}
+        showGrid={showGrid}
+        onToggleGrid={setShowGrid}
+        brushColor={brushColor}
+        brushMaterial={brushMaterial}
+        brushDurability={brushDurability}
+        brushSize={brushSize}
+        onChangeBrushColor={setBrushColor}
+        onChangeBrushMaterial={setBrushMaterial}
+        onChangeBrushDurability={(value) => setBrushDurability(Math.max(0, value))}
+        onChangeBrushSize={(value) => setBrushSize(Math.max(1, Math.floor(value)))}
+        registry={registry}
+        brushProperties={brushProperties}
+        enumOptions={enumOptions}
+        onChangeBrushProperty={(name, value) => setBrushProperties((prev) => ({ ...prev, [name]: value }))}
+        registryVersionInput={registryVersionInput}
+        newMaterialId={newMaterialId}
+        newMaterialLabel={newMaterialLabel}
+        newMaterialMaxDurability={newMaterialMaxDurability}
+        newPropertyName={newPropertyName}
+        newPropertyLabel={newPropertyLabel}
+        newPropertyType={newPropertyType}
+        newPropertyDefault={newPropertyDefault}
+        newPropertyEnumValues={newPropertyEnumValues}
+        onSetRegistryVersionInput={setRegistryVersionInput}
+        onSetNewMaterialId={setNewMaterialId}
+        onSetNewMaterialLabel={setNewMaterialLabel}
+        onSetNewMaterialMaxDurability={setNewMaterialMaxDurability}
+        onAddMaterial={() => void handleAddMaterial()}
+        onSetNewPropertyName={setNewPropertyName}
+        onSetNewPropertyLabel={setNewPropertyLabel}
+        onSetNewPropertyType={setNewPropertyType}
+        onSetNewPropertyDefault={setNewPropertyDefault}
+        onSetNewPropertyEnumValues={setNewPropertyEnumValues}
+        onAddProperty={() => void handleAddProperty()}
+        selectedCoord={selectedCoord}
+        selectedPixel={selectedPixel}
+        selectedDynamicProps={selectedDynamicProps}
+        formatPropertyValue={formatPropertyValue}
+      />
 
       <main className="canvas-wrap">
         <canvas
