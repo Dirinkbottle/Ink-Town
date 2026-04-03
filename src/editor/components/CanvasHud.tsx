@@ -1,11 +1,13 @@
+import type { InteractionMode } from "../types/interaction";
+
 interface CanvasHudProps {
-  interactionMode: "idle" | "painting" | "panning";
+  interactionMode: InteractionMode;
   brushSize: number;
   showGrid: boolean;
   worldLoaded: boolean;
 }
 
-function modeLabel(mode: "idle" | "painting" | "panning"): string {
+function modeLabel(mode: InteractionMode): string {
   if (mode === "painting") {
     return "绘制中";
   }
