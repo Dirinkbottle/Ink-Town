@@ -1,7 +1,48 @@
 {
   "version": "1.0.0",
-  "materials_file": "materials.json",
-  "attributes_file": "attributes.json",
-  "value_sets_file": "value_sets.json",
-  "schema_file": "pixel.schema.json"
+  "materials": [
+    {
+      "id": "soil",
+      "label": "Soil",
+      "max_durability": 100
+    },
+    {
+      "id": "stone",
+      "label": "Stone",
+      "max_durability": 250
+    },
+    {
+      "id": "wood",
+      "label": "Wood",
+      "max_durability": 80
+    },
+    {
+      "id": "water",
+      "label": "Water",
+      "max_durability": 1
+    }
+  ],
+  "properties": [
+    {
+      "name": "terrain",
+      "label": "Terrain",
+      "type": "enum",
+      "default_value": "plain",
+      "enum_values": ["plain", "forest", "rock", "water"]
+    },
+    {
+      "name": "humidity",
+      "label": "Humidity",
+      "type": "enum",
+      "default_value": "normal",
+      "enum_values": ["dry", "normal", "wet"]
+    },
+    {
+      "name": "biome",
+      "label": "Biome",
+      "type": "enum",
+      "default_value": "temperate",
+      "enum_values": ["temperate", "desert", "tundra"]
+    }
+  ]
 }

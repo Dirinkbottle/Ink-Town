@@ -26,17 +26,15 @@ describe("world math", () => {
 
   it("builds attribute options from registry snapshot", () => {
     const options = buildAttributeOptions({
-      attributes: [
-        { id: "terrain", value_set: "terrain_set" },
-        { id: "humidity", value_set: "humidity_set" }
-      ],
-      value_sets: {
-        terrain_set: ["plain", "rock"],
-        humidity_set: ["dry", "wet"]
-      }
+      properties: [
+        { name: "terrain", type: "enum", enum_values: ["plain", "rock"] },
+        { name: "humidity", type: "enum", enum_values: ["dry", "wet"] },
+        { name: "temperature", type: "float", enum_values: [] }
+      ]
     });
 
     expect(options.terrain).toEqual(["plain", "rock"]);
     expect(options.humidity).toEqual(["dry", "wet"]);
+    expect(options.temperature).toBeUndefined();
   });
 });

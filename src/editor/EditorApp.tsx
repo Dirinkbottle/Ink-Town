@@ -3,7 +3,15 @@ import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
 import { CanvasRenderer } from "../renderer/canvasRenderer";
-import type { ChunkCoord, ChunkData, PixelCell, RegistrySnapshot, WorldMeta } from "../renderer/types";
+import type {
+  ChunkData,
+  PixelCell,
+  PixelPrimitive,
+  PropertyDefinition,
+  PropertyType,
+  RegistrySnapshot,
+  WorldMeta
+} from "../renderer/types";
 import { hexToRgb, rgbToHex } from "../lib/color";
 import {
   applyPixelPatch,
@@ -32,9 +40,10 @@ const defaultMeta: WorldMeta = {
 const defaultPixel: PixelCell = {
   color: [255, 255, 255],
   material: "soil",
-  durability: 20,
-  attrs: {}
+  durability: 20
 };
+
+const corePixelKeys = new Set(["color", "material", "durability"]);
 
 function normalizeId(raw: string): string {
   return raw
@@ -51,12 +60,116 @@ function parseCsvValues(raw: string): string[] {
     .filter((v) => v.length > 0);
 }
 
-function zhDisplay(text: string): string {
-  return text;
+function parseBoolText(raw: string): boolean | null {
+  const text = raw.trim().toLowerCase();
+  if (["true", "1", "yes", "y", "on"].includes(text)) {
+    return true;
+  }
+  if (["false", "0", "no", "n", "off"].includes(text)) {
+    return false;
+  }
+  return null;
 }
 
-function zhField(field: string): string {
-  return field.replace(/^attrs\./, "");
+function parseDefaultValue(propertyType: PropertyType, raw: string, enumValues: string[]): PixelPrimitive | null {
+  switch (propertyType) {
+    case "int": {
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+        return null;
+      }
+      return parsed;
+    }
+    case "float": {
+      const parsed = Number(raw);
+      if (!Number.isFinite(parsed)) {
+        return null;
+      }
+      return parsed;
+    }
+    case "bool": {
+      return parseBoolText(raw);
+    }
+    case "string":
+      return raw;
+    case "enum": {
+      if (enumValues.length === 0) {
+        return null;
+      }
+      if (!enumValues.includes(raw)) {
+        return null;
+      }
+      return raw;
+    }
+    default:
+      return null;
+  }
+}
+
+function coerceValueByProperty(property: PropertyDefinition, candidate: unknown): PixelPrimitive {
+  const fallback = property.default_value;
+  switch (property.type) {
+    case "int": {
+      const source = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : Number(fallback);
+      if (!Number.isFinite(source)) {
+        return Number(fallback) || 0;
+      }
+      return Math.trunc(source);
+    }
+    case "float": {
+      const source = typeof candidate === "number" ? candidate : typeof candidate === "string" ? Number(candidate) : Number(fallback);
+      if (!Number.isFinite(source)) {
+        return Number(fallback) || 0;
+      }
+      return source;
+    }
+    case "bool": {
+      if (typeof candidate === "boolean") {
+        return candidate;
+      }
+      if (typeof candidate === "string") {
+        const parsed = parseBoolText(candidate);
+        if (parsed !== null) {
+          return parsed;
+        }
+      }
+      return Boolean(fallback);
+    }
+    case "string": {
+      if (typeof candidate === "string") {
+        return candidate;
+      }
+      return String(fallback ?? "");
+    }
+    case "enum": {
+      const values = property.enum_values ?? [];
+      const fallbackValue = typeof fallback === "string" ? fallback : values[0] ?? "";
+      if (typeof candidate === "string" && values.includes(candidate)) {
+        return candidate;
+      }
+      if (values.includes(fallbackValue)) {
+        return fallbackValue;
+      }
+      return values[0] ?? "";
+    }
+    default:
+      return String(fallback ?? "");
+  }
+}
+
+function getPixelDynamicProperties(pixel: PixelCell): Array<[string, unknown]> {
+  return Object.entries(pixel).filter(([key]) => !corePixelKeys.has(key));
+}
+
+function formatPropertyValue(value: unknown): string {
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") {
+    return String(value);
+  }
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return String(value);
+  }
 }
 
 function buildBrushOffsets(size: number): Array<{ dx: number; dy: number }> {
@@ -89,20 +202,19 @@ export function EditorApp() {
   const [brushMaterial, setBrushMaterial] = useState("soil");
   const [brushDurability, setBrushDurability] = useState(20);
   const [brushSize, setBrushSize] = useState(1);
-  const [brushAttrs, setBrushAttrs] = useState<Record<string, string>>({});
+  const [brushProperties, setBrushProperties] = useState<Record<string, PixelPrimitive>>({});
 
   const [registryVersionInput, setRegistryVersionInput] = useState("1.0.0");
   const [newMaterialId, setNewMaterialId] = useState("");
   const [newMaterialLabel, setNewMaterialLabel] = useState("");
   const [newMaterialMaxDurability, setNewMaterialMaxDurability] = useState(50);
 
-  const [newAttributeId, setNewAttributeId] = useState("");
-  const [newAttributeLabel, setNewAttributeLabel] = useState("");
-  const [newAttributeRequired, setNewAttributeRequired] = useState(false);
-  const [newAttributeValues, setNewAttributeValues] = useState("平原, 森林, 岩地");
+  const [newPropertyName, setNewPropertyName] = useState("");
+  const [newPropertyLabel, setNewPropertyLabel] = useState("");
+  const [newPropertyType, setNewPropertyType] = useState<PropertyType>("string");
+  const [newPropertyDefault, setNewPropertyDefault] = useState("");
+  const [newPropertyEnumValues, setNewPropertyEnumValues] = useState("plain,rock");
 
-  const [selectedAttributeForValue, setSelectedAttributeForValue] = useState("");
-  const [newValueForAttribute, setNewValueForAttribute] = useState("");
   const [appVersion, setAppVersion] = useState("0.0.0");
   const [updateInfo, setUpdateInfo] = useState<UpdateCheckResult | null>(null);
   const [isCheckingUpdate, setIsCheckingUpdate] = useState(false);
@@ -118,12 +230,14 @@ export function EditorApp() {
   const queuedVisibleRef = useRef(false);
   const worldLoadedRef = useRef(false);
 
-  const attributeOptions = useMemo(() => {
+  const enumOptions = useMemo(() => {
     if (!registry) {
       return {};
     }
     return buildAttributeOptions(registry);
   }, [registry]);
+
+  const selectedDynamicProps = useMemo(() => getPixelDynamicProperties(selectedPixel), [selectedPixel]);
 
   const syncCameraInfo = useCallback(() => {
     const renderer = rendererRef.current;
@@ -195,24 +309,12 @@ export function EditorApp() {
       if (!snapshot.materials.some((m) => m.id === brushMaterial)) {
         setBrushMaterial(snapshot.materials[0]?.id ?? "");
       }
-      setBrushAttrs((prev) => {
-        const next: Record<string, string> = {};
-        for (const attr of snapshot.attributes) {
-          const values = snapshot.value_sets[attr.value_set] ?? [];
-          const curr = prev[attr.id];
-          if (curr && values.includes(curr)) {
-            next[attr.id] = curr;
-          } else if (values[0]) {
-            next[attr.id] = values[0];
-          }
+      setBrushProperties((prev) => {
+        const next: Record<string, PixelPrimitive> = {};
+        for (const property of snapshot.properties) {
+          next[property.name] = coerceValueByProperty(property, prev[property.name]);
         }
         return next;
-      });
-      setSelectedAttributeForValue((prev) => {
-        if (prev && snapshot.attributes.some((a) => a.id === prev)) {
-          return prev;
-        }
-        return snapshot.attributes[0]?.id ?? "";
       });
       setRegistryVersionInput(snapshot.version);
     },
@@ -258,15 +360,7 @@ export function EditorApp() {
       observer.disconnect();
       rendererRef.current = null;
     };
-  }, [ensureVisibleChunks, syncCameraInfo]);
-
-  useEffect(() => {
-    rendererRef.current?.configure(meta);
-  }, [meta]);
-
-  useEffect(() => {
-    rendererRef.current?.setGridVisible(showGrid);
-  }, [showGrid]);
+  }, [ensureVisibleChunks, meta, showGrid, syncCameraInfo]);
 
   useEffect(() => {
     if (!rendererRef.current || dirtyChunkSet.size === 0) {
@@ -528,96 +622,58 @@ export function EditorApp() {
     }
   };
 
-  const handleAddAttribute = async (): Promise<void> => {
+  const handleAddProperty = async (): Promise<void> => {
     if (!registry) {
       return;
     }
-    const id = normalizeId(newAttributeId);
-    const label = newAttributeLabel.trim();
-    const values = parseCsvValues(newAttributeValues);
-    if (!id || !label) {
-      setStatus("属性 ID 和名称不能为空");
+
+    const name = normalizeId(newPropertyName);
+    const label = newPropertyLabel.trim();
+    if (!name || !label) {
+      setStatus("属性名和属性标签不能为空");
       return;
     }
-    if (values.length === 0) {
-      setStatus("属性可选值不能为空");
+    if (corePixelKeys.has(name) || name === "attrs") {
+      setStatus(`属性名 '${name}' 是保留字段`);
       return;
     }
-    if (registry.attributes.some((a) => a.id === id)) {
-      setStatus(`属性 '${id}' 已存在`);
+    if (registry.properties.some((property) => property.name === name)) {
+      setStatus(`属性 '${name}' 已存在`);
       return;
     }
 
-    let valueSetId = `${id}_set`;
-    let seed = 1;
-    while (registry.value_sets[valueSetId]) {
-      seed += 1;
-      valueSetId = `${id}_set_${seed}`;
+    const enumValues = newPropertyType === "enum" ? parseCsvValues(newPropertyEnumValues) : [];
+    const defaultSeed =
+      newPropertyType === "enum" && newPropertyDefault.trim().length === 0 ? enumValues[0] ?? "" : newPropertyDefault.trim();
+
+    const parsedDefault = parseDefaultValue(newPropertyType, defaultSeed, enumValues);
+    if (parsedDefault === null) {
+      setStatus("默认值与属性类型不匹配");
+      return;
     }
 
     const next: RegistrySnapshot = {
       ...registry,
       version: registryVersionInput.trim() || registry.version,
-      attributes: [
-        ...registry.attributes,
+      properties: [
+        ...registry.properties,
         {
-          id,
+          name,
           label,
-          value_set: valueSetId,
-          required: newAttributeRequired
+          type: newPropertyType,
+          default_value: parsedDefault,
+          enum_values: enumValues
         }
-      ],
-      value_sets: {
-        ...registry.value_sets,
-        [valueSetId]: values
-      }
+      ]
     };
 
     const ok = await saveRegistrySnapshot(next);
     if (ok) {
-      setNewAttributeId("");
-      setNewAttributeLabel("");
-      setNewAttributeRequired(false);
-      setNewAttributeValues("平原, 森林, 岩地");
-      setSelectedAttributeForValue(id);
-    }
-  };
-
-  const handleAddValueToAttribute = async (): Promise<void> => {
-    if (!registry || !selectedAttributeForValue) {
-      return;
-    }
-
-    const value = newValueForAttribute.trim();
-    if (!value) {
-      setStatus("新增值不能为空");
-      return;
-    }
-
-    const attr = registry.attributes.find((a) => a.id === selectedAttributeForValue);
-    if (!attr) {
-      setStatus("未找到选中的属性");
-      return;
-    }
-
-    const currentValues = registry.value_sets[attr.value_set] ?? [];
-    if (currentValues.includes(value)) {
-      setStatus(`值 '${value}' 已存在`);
-      return;
-    }
-
-    const next: RegistrySnapshot = {
-      ...registry,
-      version: registryVersionInput.trim() || registry.version,
-      value_sets: {
-        ...registry.value_sets,
-        [attr.value_set]: [...currentValues, value]
-      }
-    };
-
-    const ok = await saveRegistrySnapshot(next);
-    if (ok) {
-      setNewValueForAttribute("");
+      setNewPropertyName("");
+      setNewPropertyLabel("");
+      setNewPropertyType("string");
+      setNewPropertyDefault("");
+      setNewPropertyEnumValues("plain,rock");
     }
   };
 
@@ -645,13 +701,16 @@ export function EditorApp() {
     const pixel: PixelCell = {
       color: hexToRgb(brushColor),
       material: brushMaterial,
-      durability: brushDurability,
-      attrs: { ...brushAttrs }
+      durability: brushDurability
     };
+
+    for (const property of registry.properties) {
+      pixel[property.name] = coerceValueByProperty(property, brushProperties[property.name]);
+    }
 
     const valid = await validatePixelPayload(pixel);
     if (!valid.ok) {
-      setStatus(`校验失败：${valid.errors.map((e) => `${zhField(e.field)}: ${e.message}`).join("；")}`);
+      setStatus(`校验失败：${valid.errors.map((e) => `${e.field}: ${e.message}`).join("；")}`);
       return;
     }
 
@@ -741,7 +800,7 @@ export function EditorApp() {
             <select value={brushMaterial} onChange={(e) => setBrushMaterial(e.target.value)}>
               {(registry?.materials ?? []).map((m) => (
                 <option key={m.id} value={m.id}>
-                  {zhDisplay(m.label)} ({m.id})
+                  {m.label} ({m.id})
                 </option>
               ))}
             </select>
@@ -771,24 +830,65 @@ export function EditorApp() {
 
         <div className="section">
           <strong>画笔属性</strong>
-          {(registry?.attributes ?? []).map((attr) => (
-            <div className="row" key={attr.id}>
-              <label>{zhDisplay(attr.label)}</label>
-              <select
-                value={brushAttrs[attr.id] ?? ""}
-                onChange={(e) => {
-                  const value = e.target.value;
-                  setBrushAttrs((prev) => ({ ...prev, [attr.id]: value }));
-                }}
-              >
-                {(attributeOptions[attr.id] ?? []).map((value) => (
-                  <option key={value} value={value}>
-                    {zhDisplay(value)}
-                  </option>
-                ))}
-              </select>
-            </div>
-          ))}
+          {(registry?.properties ?? []).map((property) => {
+            const value = brushProperties[property.name];
+            if (property.type === "enum") {
+              return (
+                <div className="row" key={property.name}>
+                  <label>{property.label}</label>
+                  <select
+                    value={typeof value === "string" ? value : String(property.default_value ?? "")}
+                    onChange={(e) => setBrushProperties((prev) => ({ ...prev, [property.name]: e.target.value }))}
+                  >
+                    {(enumOptions[property.name] ?? []).map((option) => (
+                      <option key={option} value={option}>
+                        {option}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              );
+            }
+
+            if (property.type === "bool") {
+              return (
+                <div className="row" key={property.name}>
+                  <label>{property.label}</label>
+                  <input
+                    type="checkbox"
+                    checked={Boolean(value ?? property.default_value)}
+                    onChange={(e) => setBrushProperties((prev) => ({ ...prev, [property.name]: e.target.checked }))}
+                  />
+                </div>
+              );
+            }
+
+            const isNumber = property.type === "int" || property.type === "float";
+            return (
+              <div className="row" key={property.name}>
+                <label>{property.label}</label>
+                <input
+                  type={isNumber ? "number" : "text"}
+                  step={property.type === "float" ? "0.01" : "1"}
+                  value={value === undefined ? String(property.default_value ?? "") : String(value)}
+                  onChange={(e) => {
+                    const nextRaw = e.target.value;
+                    if (isNumber) {
+                      const parsed = Number(nextRaw);
+                      if (!Number.isFinite(parsed)) {
+                        setBrushProperties((prev) => ({ ...prev, [property.name]: 0 }));
+                        return;
+                      }
+                      const normalized = property.type === "int" ? Math.trunc(parsed) : parsed;
+                      setBrushProperties((prev) => ({ ...prev, [property.name]: normalized }));
+                      return;
+                    }
+                    setBrushProperties((prev) => ({ ...prev, [property.name]: nextRaw }));
+                  }}
+                />
+              </div>
+            );
+          })}
         </div>
 
         <div className="section">
@@ -801,15 +901,11 @@ export function EditorApp() {
           <div className="sub-title">新增材质</div>
           <div className="row">
             <label>标识</label>
-            <input
-              value={newMaterialId}
-              onChange={(e) => setNewMaterialId(e.target.value)}
-              placeholder="例如 metal（建议英文）"
-            />
+            <input value={newMaterialId} onChange={(e) => setNewMaterialId(e.target.value)} placeholder="例如 metal" />
           </div>
           <div className="row">
             <label>名称</label>
-            <input value={newMaterialLabel} onChange={(e) => setNewMaterialLabel(e.target.value)} placeholder="例如 金属" />
+            <input value={newMaterialLabel} onChange={(e) => setNewMaterialLabel(e.target.value)} placeholder="例如 Metal" />
           </div>
           <div className="row">
             <label>最大耐久</label>
@@ -826,47 +922,46 @@ export function EditorApp() {
 
           <div className="sub-title">新增属性</div>
           <div className="row">
-            <label>标识</label>
-            <input
-              value={newAttributeId}
-              onChange={(e) => setNewAttributeId(e.target.value)}
-              placeholder="例如 biome（建议英文）"
-            />
+            <label>属性名</label>
+            <input value={newPropertyName} onChange={(e) => setNewPropertyName(e.target.value)} placeholder="例如 biome" />
           </div>
           <div className="row">
-            <label>名称</label>
-            <input value={newAttributeLabel} onChange={(e) => setNewAttributeLabel(e.target.value)} placeholder="例如 生态群落" />
+            <label>属性标签</label>
+            <input value={newPropertyLabel} onChange={(e) => setNewPropertyLabel(e.target.value)} placeholder="例如 Biome" />
           </div>
           <div className="row">
-            <label>可选值（逗号分隔）</label>
-            <input value={newAttributeValues} onChange={(e) => setNewAttributeValues(e.target.value)} />
-          </div>
-          <div className="row">
-            <label>必填</label>
-            <input type="checkbox" checked={newAttributeRequired} onChange={(e) => setNewAttributeRequired(e.target.checked)} />
-          </div>
-          <div className="row row-buttons">
-            <button onClick={() => void handleAddAttribute()}>添加属性</button>
-          </div>
-
-          <div className="sub-title">追加属性值</div>
-          <div className="row">
-            <label>属性</label>
-            <select value={selectedAttributeForValue} onChange={(e) => setSelectedAttributeForValue(e.target.value)}>
-              <option value="">请选择...</option>
-              {(registry?.attributes ?? []).map((attr) => (
-                <option key={attr.id} value={attr.id}>
-                  {zhDisplay(attr.label)} ({attr.id})
-                </option>
-              ))}
+            <label>类型</label>
+            <select value={newPropertyType} onChange={(e) => setNewPropertyType(e.target.value as PropertyType)}>
+              <option value="int">int</option>
+              <option value="float">float</option>
+              <option value="bool">bool</option>
+              <option value="string">string</option>
+              <option value="enum">enum</option>
             </select>
           </div>
           <div className="row">
-            <label>新增值</label>
-            <input value={newValueForAttribute} onChange={(e) => setNewValueForAttribute(e.target.value)} placeholder="例如 沼泽" />
+            <label>默认值</label>
+            {newPropertyType === "bool" ? (
+              <select value={newPropertyDefault || "false"} onChange={(e) => setNewPropertyDefault(e.target.value)}>
+                <option value="false">false</option>
+                <option value="true">true</option>
+              </select>
+            ) : (
+              <input
+                value={newPropertyDefault}
+                onChange={(e) => setNewPropertyDefault(e.target.value)}
+                placeholder={newPropertyType === "enum" ? "必须在枚举可选值中" : "输入默认值"}
+              />
+            )}
           </div>
+          {newPropertyType === "enum" ? (
+            <div className="row">
+              <label>枚举值</label>
+              <input value={newPropertyEnumValues} onChange={(e) => setNewPropertyEnumValues(e.target.value)} placeholder="a,b,c" />
+            </div>
+          ) : null}
           <div className="row row-buttons">
-            <button onClick={() => void handleAddValueToAttribute()}>添加值</button>
+            <button onClick={() => void handleAddProperty()}>添加属性</button>
           </div>
         </div>
 
@@ -879,16 +974,16 @@ export function EditorApp() {
           </div>
           <div className="row">
             <label>材质</label>
-            <input value={zhDisplay(selectedPixel.material)} readOnly />
+            <input value={selectedPixel.material} readOnly />
           </div>
           <div className="row">
             <label>耐久</label>
             <input value={selectedPixel.durability} readOnly />
           </div>
           <div>
-            {Object.entries(selectedPixel.attrs).map(([k, v]) => (
-              <span key={k} className="attr-pill">
-                {zhDisplay(k)}:{zhDisplay(v)}
+            {selectedDynamicProps.map(([key, value]) => (
+              <span key={key} className="attr-pill">
+                {key}:{formatPropertyValue(value)}
               </span>
             ))}
           </div>

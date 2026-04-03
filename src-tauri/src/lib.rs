@@ -1,4 +1,3 @@
-use jsonschema::{Draft, JSONSchema};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -31,8 +30,24 @@ pub struct PixelCell {
     pub color: [u8; 3],
     pub material: String,
     pub durability: u32,
-    #[serde(default)]
-    pub attrs: HashMap<String, String>,
+    #[serde(default, flatten)]
+    pub properties: HashMap<String, Value>,
+}
+
+impl PixelCell {
+    fn normalize_legacy_shape(&mut self) {
+        if let Some(legacy) = self.properties.remove("attrs") {
+            if let Value::Object(attrs) = legacy {
+                for (k, v) in attrs {
+                    self.properties.entry(k).or_insert(v);
+                }
+            }
+        }
+
+        self.properties.remove("color");
+        self.properties.remove("material");
+        self.properties.remove("durability");
+    }
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -49,21 +64,33 @@ pub struct MaterialDefinition {
     pub max_durability: u32,
 }
 
+#[derive(Debug, Serialize, Deserialize, Clone, PartialEq, Eq)]
+#[serde(rename_all = "lowercase")]
+pub enum PropertyType {
+    Int,
+    Float,
+    Bool,
+    String,
+    Enum,
+}
+
 #[derive(Debug, Serialize, Deserialize, Clone)]
-pub struct AttributeDefinition {
-    pub id: String,
+pub struct PropertyDefinition {
+    pub name: String,
     pub label: String,
-    pub value_set: String,
-    pub required: bool,
+    #[serde(rename = "type")]
+    pub property_type: PropertyType,
+    pub default_value: Value,
+    #[serde(default)]
+    pub enum_values: Vec<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
 pub struct RegistrySnapshot {
     pub version: String,
     pub materials: Vec<MaterialDefinition>,
-    pub attributes: Vec<AttributeDefinition>,
-    pub value_sets: HashMap<String, Vec<String>>,
-    pub schema: Value,
+    #[serde(default)]
+    pub properties: Vec<PropertyDefinition>,
 }
 
 #[derive(Debug, Serialize, Deserialize, Clone)]
@@ -92,26 +119,34 @@ pub struct PixelPatch {
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct RegistryConfig {
+struct LegacyRegistryConfig {
     version: String,
     materials_file: String,
     attributes_file: String,
     value_sets_file: String,
-    schema_file: String,
+    schema_file: Option<String>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct MaterialsFile {
+struct LegacyMaterialsFile {
     materials: Vec<MaterialDefinition>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct AttributesFile {
-    attributes: Vec<AttributeDefinition>,
+struct LegacyAttributeDefinition {
+    id: String,
+    label: String,
+    value_set: String,
+    required: Option<bool>,
 }
 
 #[derive(Debug, Serialize, Deserialize)]
-struct ValueSetsFile {
+struct LegacyAttributesFile {
+    attributes: Vec<LegacyAttributeDefinition>,
+}
+
+#[derive(Debug, Serialize, Deserialize)]
+struct LegacyValueSetsFile {
     value_sets: HashMap<String, Vec<String>>,
 }
 
@@ -152,7 +187,7 @@ impl WorldRuntime {
         }
 
         let path = self.chunk_path(coord)?;
-        let chunk = if path.exists() {
+        let mut chunk = if path.exists() {
             let text = fs::read_to_string(path)?;
             serde_json::from_str::<ChunkData>(&text)?
         } else {
@@ -161,6 +196,14 @@ impl WorldRuntime {
                 cells: HashMap::new(),
             }
         };
+
+        let registry = self.registry.clone();
+        for pixel in chunk.cells.values_mut() {
+            pixel.normalize_legacy_shape();
+            if let Some(snapshot) = registry.as_ref() {
+                apply_property_defaults(pixel, snapshot);
+            }
+        }
 
         self.chunks.insert(coord, chunk.clone());
         Ok(chunk)
@@ -190,8 +233,6 @@ enum AppError {
     Io(#[from] std::io::Error),
     #[error("JSON 解析错误: {0}")]
     Json(#[from] serde_json::Error),
-    #[error("Schema 编译错误: {0}")]
-    SchemaCompile(String),
     #[error("数据校验失败")]
     Validation { errors: Vec<ValidationError> },
     #[error("地图路径无效")]
@@ -210,62 +251,120 @@ fn default_registry_dir() -> PathBuf {
 }
 
 fn sibling_registry_dir(world_dir: &Path) -> PathBuf {
-    world_dir
-        .parent()
-        .unwrap_or(world_dir)
-        .join("registry")
+    world_dir.parent().unwrap_or(world_dir).join("registry")
+}
+
+fn value_matches_type(value: &Value, property_type: &PropertyType) -> bool {
+    match property_type {
+        PropertyType::Int => value.as_i64().is_some() || value.as_u64().is_some(),
+        PropertyType::Float => value.is_number(),
+        PropertyType::Bool => value.is_boolean(),
+        PropertyType::String => value.is_string(),
+        PropertyType::Enum => value.is_string(),
+    }
+}
+
+fn default_value_for_type(property_type: &PropertyType, enum_values: &[String]) -> Value {
+    match property_type {
+        PropertyType::Int => Value::from(0),
+        PropertyType::Float => Value::from(0.0),
+        PropertyType::Bool => Value::from(false),
+        PropertyType::String => Value::from(""),
+        PropertyType::Enum => Value::from(enum_values.first().cloned().unwrap_or_default()),
+    }
+}
+
+fn normalize_registry_snapshot(snapshot: &mut RegistrySnapshot) {
+    for property in &mut snapshot.properties {
+        if property.default_value.is_null() {
+            property.default_value = default_value_for_type(&property.property_type, &property.enum_values);
+        }
+        if property.property_type == PropertyType::Enum {
+            if property.default_value.as_str().is_none() {
+                property.default_value = default_value_for_type(&property.property_type, &property.enum_values);
+            }
+            if let Some(default_str) = property.default_value.as_str() {
+                if !property.enum_values.is_empty() && !property.enum_values.iter().any(|v| v == default_str) {
+                    property.default_value = Value::from(property.enum_values[0].clone());
+                }
+            }
+        }
+    }
+}
+
+fn convert_legacy_registry(
+    version: String,
+    materials: Vec<MaterialDefinition>,
+    attributes: Vec<LegacyAttributeDefinition>,
+    value_sets: HashMap<String, Vec<String>>,
+) -> RegistrySnapshot {
+    let mut properties = Vec::new();
+    for attr in attributes {
+        let options = value_sets.get(&attr.value_set).cloned().unwrap_or_default();
+        if options.is_empty() {
+            properties.push(PropertyDefinition {
+                name: attr.id,
+                label: attr.label,
+                property_type: PropertyType::String,
+                default_value: Value::from(""),
+                enum_values: Vec::new(),
+            });
+        } else {
+            properties.push(PropertyDefinition {
+                name: attr.id,
+                label: attr.label,
+                property_type: PropertyType::Enum,
+                default_value: Value::from(options[0].clone()),
+                enum_values: options,
+            });
+        }
+    }
+
+    RegistrySnapshot {
+        version,
+        materials,
+        properties,
+    }
 }
 
 fn load_registry_from_dir(registry_dir: &Path) -> Result<RegistrySnapshot, AppError> {
     let registry_text = fs::read_to_string(registry_dir.join("registry.json"))?;
-    let config: RegistryConfig = serde_json::from_str(&registry_text)?;
+    let root: Value = serde_json::from_str(&registry_text)?;
 
-    let materials: MaterialsFile = serde_json::from_str(&fs::read_to_string(
+    if root.get("properties").is_some() {
+        let mut snapshot: RegistrySnapshot = serde_json::from_value(root)?;
+        normalize_registry_snapshot(&mut snapshot);
+        validate_registry_snapshot(&snapshot)?;
+        return Ok(snapshot);
+    }
+
+    let config: LegacyRegistryConfig = serde_json::from_value(root)?;
+    let materials: LegacyMaterialsFile = serde_json::from_str(&fs::read_to_string(
         registry_dir.join(config.materials_file.clone()),
     )?)?;
-
-    let attributes: AttributesFile = serde_json::from_str(&fs::read_to_string(
+    let attributes: LegacyAttributesFile = serde_json::from_str(&fs::read_to_string(
         registry_dir.join(config.attributes_file.clone()),
     )?)?;
-
-    let value_sets: ValueSetsFile = serde_json::from_str(&fs::read_to_string(
+    let value_sets: LegacyValueSetsFile = serde_json::from_str(&fs::read_to_string(
         registry_dir.join(config.value_sets_file.clone()),
     )?)?;
 
-    let schema: Value = serde_json::from_str(&fs::read_to_string(
-        registry_dir.join(config.schema_file.clone()),
-    )?)?;
-
-    Ok(RegistrySnapshot {
-        version: config.version,
-        materials: materials.materials,
-        attributes: attributes.attributes,
-        value_sets: value_sets.value_sets,
-        schema,
-    })
+    let mut snapshot = convert_legacy_registry(
+        config.version,
+        materials.materials,
+        attributes.attributes,
+        value_sets.value_sets,
+    );
+    normalize_registry_snapshot(&mut snapshot);
+    validate_registry_snapshot(&snapshot)?;
+    Ok(snapshot)
 }
 
 fn load_builtin_registry() -> Result<RegistrySnapshot, AppError> {
-    let config_text = include_str!("../../data/registry/registry.json");
-    let config: RegistryConfig = serde_json::from_str(config_text)?;
-
-    let materials_text = include_str!("../../data/registry/materials.json");
-    let attributes_text = include_str!("../../data/registry/attributes.json");
-    let value_sets_text = include_str!("../../data/registry/value_sets.json");
-    let schema_text = include_str!("../../data/registry/pixel.schema.json");
-
-    let materials: MaterialsFile = serde_json::from_str(materials_text)?;
-    let attributes: AttributesFile = serde_json::from_str(attributes_text)?;
-    let value_sets: ValueSetsFile = serde_json::from_str(value_sets_text)?;
-    let schema: Value = serde_json::from_str(schema_text)?;
-
-    Ok(RegistrySnapshot {
-        version: config.version,
-        materials: materials.materials,
-        attributes: attributes.attributes,
-        value_sets: value_sets.value_sets,
-        schema,
-    })
+    let mut snapshot: RegistrySnapshot = serde_json::from_str(include_str!("../../data/registry/registry.json"))?;
+    normalize_registry_snapshot(&mut snapshot);
+    validate_registry_snapshot(&snapshot)?;
+    Ok(snapshot)
 }
 
 fn load_registry_best_effort(preferred_dir: &Path) -> Result<RegistrySnapshot, AppError> {
@@ -303,48 +402,69 @@ fn validate_registry_snapshot(snapshot: &RegistrySnapshot) -> Result<(), AppErro
         }
     }
 
-    let mut attr_ids: HashSet<&str> = HashSet::new();
-    for attr in &snapshot.attributes {
-        if attr.id.trim().is_empty() {
-            return Err(AppError::InvalidRegistry("属性 ID 不能为空".to_string()));
+    let mut property_names: HashSet<&str> = HashSet::new();
+    for property in &snapshot.properties {
+        if property.name.trim().is_empty() {
+            return Err(AppError::InvalidRegistry("属性名不能为空".to_string()));
         }
-        if attr.value_set.trim().is_empty() {
+        if matches!(property.name.as_str(), "color" | "material" | "durability" | "attrs") {
             return Err(AppError::InvalidRegistry(format!(
-                "属性 '{}' 的 value_set 为空",
-                attr.id
+                "属性名 '{}' 是保留字段",
+                property.name
             )));
         }
-        if !attr_ids.insert(attr.id.as_str()) {
+        if !property_names.insert(property.name.as_str()) {
             return Err(AppError::InvalidRegistry(format!(
-                "属性 ID 重复 '{}'",
-                attr.id
+                "属性名重复 '{}'",
+                property.name
             )));
         }
-        if !snapshot.value_sets.contains_key(&attr.value_set) {
+        if property.label.trim().is_empty() {
             return Err(AppError::InvalidRegistry(format!(
-                "属性 '{}' 引用了不存在的 value_set '{}'",
-                attr.id, attr.value_set
+                "属性 '{}' 的标签不能为空",
+                property.name
             )));
         }
-    }
+        if !value_matches_type(&property.default_value, &property.property_type) {
+            return Err(AppError::InvalidRegistry(format!(
+                "属性 '{}' 的默认值类型与声明不一致",
+                property.name
+            )));
+        }
 
-    for (set_id, values) in &snapshot.value_sets {
-        if set_id.trim().is_empty() {
-            return Err(AppError::InvalidRegistry("value_set ID 不能为空".to_string()));
-        }
-        let mut unique = HashSet::new();
-        for value in values {
-            let trimmed = value.trim();
-            if trimmed.is_empty() {
+        if property.property_type == PropertyType::Enum {
+            if property.enum_values.is_empty() {
                 return Err(AppError::InvalidRegistry(format!(
-                    "value_set '{}' 包含空值",
-                    set_id
+                    "枚举属性 '{}' 的可选值不能为空",
+                    property.name
                 )));
             }
-            if !unique.insert(trimmed.to_string()) {
+            let mut uniq: HashSet<&str> = HashSet::new();
+            for item in &property.enum_values {
+                let trimmed = item.trim();
+                if trimmed.is_empty() {
+                    return Err(AppError::InvalidRegistry(format!(
+                        "枚举属性 '{}' 包含空值",
+                        property.name
+                    )));
+                }
+                if !uniq.insert(trimmed) {
+                    return Err(AppError::InvalidRegistry(format!(
+                        "枚举属性 '{}' 的可选值重复 '{}'",
+                        property.name, trimmed
+                    )));
+                }
+            }
+            let Some(default_str) = property.default_value.as_str() else {
                 return Err(AppError::InvalidRegistry(format!(
-                    "value_set '{}' 包含重复值 '{}'",
-                    set_id, trimmed
+                    "枚举属性 '{}' 的默认值必须是字符串",
+                    property.name
+                )));
+            };
+            if !property.enum_values.iter().any(|v| v == default_str) {
+                return Err(AppError::InvalidRegistry(format!(
+                    "枚举属性 '{}' 的默认值 '{}' 不在可选值中",
+                    property.name, default_str
                 )));
             }
         }
@@ -355,67 +475,21 @@ fn validate_registry_snapshot(snapshot: &RegistrySnapshot) -> Result<(), AppErro
 
 fn write_registry_to_dir(registry_dir: &Path, snapshot: &RegistrySnapshot) -> Result<(), AppError> {
     fs::create_dir_all(registry_dir)?;
-    let registry_path = registry_dir.join("registry.json");
-    let mut config = if registry_path.exists() {
-        let text = fs::read_to_string(&registry_path)?;
-        serde_json::from_str::<RegistryConfig>(&text)?
-    } else {
-        RegistryConfig {
-            version: snapshot.version.clone(),
-            materials_file: "materials.json".to_string(),
-            attributes_file: "attributes.json".to_string(),
-            value_sets_file: "value_sets.json".to_string(),
-            schema_file: "pixel.schema.json".to_string(),
-        }
-    };
-    config.version = snapshot.version.clone();
-
     fs::write(
-        registry_dir.join(&config.materials_file),
-        serde_json::to_string_pretty(&MaterialsFile {
-            materials: snapshot.materials.clone(),
-        })?,
+        registry_dir.join("registry.json"),
+        serde_json::to_string_pretty(snapshot)?,
     )?;
-    fs::write(
-        registry_dir.join(&config.attributes_file),
-        serde_json::to_string_pretty(&AttributesFile {
-            attributes: snapshot.attributes.clone(),
-        })?,
-    )?;
-    fs::write(
-        registry_dir.join(&config.value_sets_file),
-        serde_json::to_string_pretty(&ValueSetsFile {
-            value_sets: snapshot.value_sets.clone(),
-        })?,
-    )?;
-    fs::write(
-        registry_dir.join(&config.schema_file),
-        serde_json::to_string_pretty(&snapshot.schema)?,
-    )?;
-    fs::write(registry_path, serde_json::to_string_pretty(&config)?)?;
     Ok(())
 }
 
-fn validate_pixel_with_schema(pixel: &PixelCell, schema: &Value) -> Result<(), AppError> {
-    let compiled = JSONSchema::options()
-        .with_draft(Draft::Draft7)
-        .compile(schema)
-        .map_err(|e| AppError::SchemaCompile(e.to_string()))?;
-
-    let payload = serde_json::to_value(pixel)?;
-    let result = compiled.validate(&payload);
-
-    if let Err(errors) = result {
-        let parsed = errors
-            .map(|err| ValidationError {
-                field: err.instance_path.to_string(),
-                message: err.to_string(),
-            })
-            .collect::<Vec<_>>();
-        return Err(AppError::Validation { errors: parsed });
+fn apply_property_defaults(pixel: &mut PixelCell, registry: &RegistrySnapshot) {
+    for property in &registry.properties {
+        if !pixel.properties.contains_key(&property.name) {
+            pixel
+                .properties
+                .insert(property.name.clone(), property.default_value.clone());
+        }
     }
-
-    Ok(())
 }
 
 fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) -> Result<(), AppError> {
@@ -441,34 +515,50 @@ fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) 
         }
     }
 
-    for attr in &registry.attributes {
-        if attr.required && !pixel.attrs.contains_key(&attr.id) {
-            errors.push(ValidationError {
-                field: format!("attrs.{}", attr.id),
-                message: "缺少必填属性".to_string(),
-            });
-        }
+    let mut property_map: HashMap<&str, &PropertyDefinition> = HashMap::new();
+    for property in &registry.properties {
+        property_map.insert(property.name.as_str(), property);
     }
 
-    for (key, value) in &pixel.attrs {
-        let Some(attr_def) = registry.attributes.iter().find(|a| a.id == *key) else {
+    for (key, value) in &pixel.properties {
+        if matches!(key.as_str(), "color" | "material" | "durability" | "attrs") {
             errors.push(ValidationError {
-                field: format!("attrs.{}", key),
+                field: key.clone(),
+                message: "该字段为系统保留字段".to_string(),
+            });
+            continue;
+        }
+
+        let Some(property) = property_map.get(key.as_str()) else {
+            errors.push(ValidationError {
+                field: key.clone(),
                 message: "该属性未在索引库中定义".to_string(),
             });
             continue;
         };
 
-        let allowed = registry
-            .value_sets
-            .get(&attr_def.value_set)
-            .cloned()
-            .unwrap_or_default();
-        if !allowed.contains(value) {
+        if !value_matches_type(value, &property.property_type) {
             errors.push(ValidationError {
-                field: format!("attrs.{}", key),
-                message: format!("值 '{}' 不在可选集合 {}", value, attr_def.value_set),
+                field: key.clone(),
+                message: "属性值类型不匹配".to_string(),
             });
+            continue;
+        }
+
+        if property.property_type == PropertyType::Enum {
+            let Some(current) = value.as_str() else {
+                errors.push(ValidationError {
+                    field: key.clone(),
+                    message: "枚举属性值必须是字符串".to_string(),
+                });
+                continue;
+            };
+            if !property.enum_values.iter().any(|item| item == current) {
+                errors.push(ValidationError {
+                    field: key.clone(),
+                    message: format!("值 '{}' 不在枚举可选值中", current),
+                });
+            }
         }
     }
 
@@ -479,10 +569,10 @@ fn validate_pixel_with_registry(pixel: &PixelCell, registry: &RegistrySnapshot) 
     }
 }
 
-fn validate_pixel(pixel: &PixelCell, registry: &RegistrySnapshot) -> Result<(), AppError> {
-    validate_pixel_with_schema(pixel, &registry.schema)?;
-    validate_pixel_with_registry(pixel, registry)?;
-    Ok(())
+fn normalize_and_validate_pixel(pixel: &mut PixelCell, registry: &RegistrySnapshot) -> Result<(), AppError> {
+    pixel.normalize_legacy_shape();
+    apply_property_defaults(pixel, registry);
+    validate_pixel_with_registry(pixel, registry)
 }
 
 #[cfg(feature = "desktop")]
@@ -501,7 +591,10 @@ fn load_world(state: State<'_, AppState>, meta_path: String) -> Result<LoadWorld
     let meta: WorldMeta = serde_json::from_str(&world_meta_text).map_err(|e| e.to_string())?;
     let registry = load_registry_best_effort(&registry_dir).map_err(|e| e.to_string())?;
 
-    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| AppError::LockPoisoned.to_string())?;
     runtime.world_meta_path = Some(meta_path);
     runtime.world_dir = Some(world_dir);
     runtime.registry_dir = Some(registry_dir);
@@ -563,7 +656,10 @@ fn create_world(state: State<'_, AppState>, meta_path: String) -> Result<LoadWor
     )
     .map_err(|e| e.to_string())?;
 
-    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| AppError::LockPoisoned.to_string())?;
     runtime.world_meta_path = Some(meta_path);
     runtime.world_dir = Some(world_dir);
     runtime.registry_dir = Some(registry_dir);
@@ -584,7 +680,10 @@ fn create_world(state: State<'_, AppState>, meta_path: String) -> Result<LoadWor
 #[cfg(feature = "desktop")]
 #[tauri::command]
 fn load_chunks(state: State<'_, AppState>, chunk_coords: Vec<ChunkCoord>) -> Result<Vec<ChunkData>, String> {
-    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| AppError::LockPoisoned.to_string())?;
     runtime.require_meta().map_err(|e| e.to_string())?;
 
     chunk_coords
@@ -596,20 +695,26 @@ fn load_chunks(state: State<'_, AppState>, chunk_coords: Vec<ChunkCoord>) -> Res
 #[cfg(feature = "desktop")]
 #[tauri::command]
 fn apply_pixel_patch(state: State<'_, AppState>, patches: Vec<PixelPatch>) -> Result<Vec<ChunkCoord>, String> {
-    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| AppError::LockPoisoned.to_string())?;
     let meta = runtime.require_meta().map_err(|e| e.to_string())?.clone();
     let registry = runtime.require_registry().map_err(|e| e.to_string())?.clone();
 
     let mut touched: HashSet<ChunkCoord> = HashSet::new();
-    for patch in patches {
-        validate_pixel(&patch.pixel, &registry).map_err(|e| e.to_string())?;
+    for mut patch in patches {
+        normalize_and_validate_pixel(&mut patch.pixel, &registry).map_err(|e| e.to_string())?;
 
         let chunk_size = meta.chunk_size as i32;
         let chunk_x = patch.world_x.div_euclid(chunk_size);
         let chunk_y = patch.world_y.div_euclid(chunk_size);
         let local_x = patch.world_x.rem_euclid(chunk_size);
         let local_y = patch.world_y.rem_euclid(chunk_size);
-        let coord = ChunkCoord { x: chunk_x, y: chunk_y };
+        let coord = ChunkCoord {
+            x: chunk_x,
+            y: chunk_y,
+        };
         let mut chunk = runtime.load_chunk(coord).map_err(|e| e.to_string())?;
         chunk
             .cells
@@ -625,7 +730,10 @@ fn apply_pixel_patch(state: State<'_, AppState>, patches: Vec<PixelPatch>) -> Re
 #[cfg(feature = "desktop")]
 #[tauri::command]
 fn load_registry(state: State<'_, AppState>) -> Result<RegistrySnapshot, String> {
-    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| AppError::LockPoisoned.to_string())?;
     if let Some(snapshot) = runtime.registry.clone() {
         return Ok(snapshot);
     }
@@ -643,28 +751,36 @@ fn load_registry(state: State<'_, AppState>) -> Result<RegistrySnapshot, String>
 #[cfg(feature = "desktop")]
 #[tauri::command]
 fn save_registry(state: State<'_, AppState>, snapshot: RegistrySnapshot) -> Result<RegistrySnapshot, String> {
-    validate_registry_snapshot(&snapshot).map_err(|e| e.to_string())?;
+    let mut normalized = snapshot;
+    normalize_registry_snapshot(&mut normalized);
+    validate_registry_snapshot(&normalized).map_err(|e| e.to_string())?;
 
-    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| AppError::LockPoisoned.to_string())?;
     let dir = runtime
         .registry_dir
         .clone()
         .unwrap_or_else(default_registry_dir);
-    write_registry_to_dir(&dir, &snapshot).map_err(|e| e.to_string())?;
+    write_registry_to_dir(&dir, &normalized).map_err(|e| e.to_string())?;
 
     if let Some(meta) = runtime.meta.as_mut() {
-        meta.registry_version = snapshot.version.clone();
+        meta.registry_version = normalized.version.clone();
     }
 
     runtime.registry_dir = Some(dir);
-    runtime.registry = Some(snapshot.clone());
-    Ok(snapshot)
+    runtime.registry = Some(normalized.clone());
+    Ok(normalized)
 }
 
 #[cfg(feature = "desktop")]
 #[tauri::command]
-fn validate_pixel_payload(state: State<'_, AppState>, payload: PixelCell) -> Result<ValidatePixelResponse, String> {
-    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+fn validate_pixel_payload(state: State<'_, AppState>, mut payload: PixelCell) -> Result<ValidatePixelResponse, String> {
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| AppError::LockPoisoned.to_string())?;
     if runtime.registry.is_none() {
         let dir = runtime
             .registry_dir
@@ -679,7 +795,7 @@ fn validate_pixel_payload(state: State<'_, AppState>, payload: PixelCell) -> Res
         return Err(AppError::RegistryUnavailable.to_string());
     };
 
-    match validate_pixel(&payload, registry) {
+    match normalize_and_validate_pixel(&mut payload, registry) {
         Ok(()) => Ok(ValidatePixelResponse {
             ok: true,
             errors: Vec::new(),
@@ -692,7 +808,10 @@ fn validate_pixel_payload(state: State<'_, AppState>, payload: PixelCell) -> Res
 #[cfg(feature = "desktop")]
 #[tauri::command]
 fn save_world(state: State<'_, AppState>) -> Result<(), String> {
-    let mut runtime = state.runtime.lock().map_err(|_| AppError::LockPoisoned.to_string())?;
+    let mut runtime = state
+        .runtime
+        .lock()
+        .map_err(|_| AppError::LockPoisoned.to_string())?;
     runtime.require_meta().map_err(|e| e.to_string())?;
 
     let dirty_coords = runtime.dirty_chunks.clone();
@@ -807,36 +926,22 @@ mod tests {
                     max_durability: 250,
                 },
             ],
-            attributes: vec![AttributeDefinition {
-                id: "terrain".to_string(),
-                label: "Terrain".to_string(),
-                value_set: "terrain_kind".to_string(),
-                required: true,
-            }],
-            value_sets: HashMap::from([(
-                "terrain_kind".to_string(),
-                vec!["plain".to_string(), "rock".to_string()],
-            )]),
-            schema: serde_json::json!({
-              "$schema": "http://json-schema.org/draft-07/schema#",
-              "type": "object",
-              "required": ["color", "material", "durability", "attrs"],
-              "properties": {
-                "color": {
-                  "type": "array",
-                  "minItems": 3,
-                  "maxItems": 3,
-                  "items": {"type": "integer", "minimum": 0, "maximum": 255}
+            properties: vec![
+                PropertyDefinition {
+                    name: "terrain".to_string(),
+                    label: "Terrain".to_string(),
+                    property_type: PropertyType::Enum,
+                    default_value: Value::from("plain"),
+                    enum_values: vec!["plain".to_string(), "rock".to_string()],
                 },
-                "material": {"type": "string"},
-                "durability": {"type": "integer", "minimum": 0},
-                "attrs": {
-                  "type": "object",
-                  "additionalProperties": {"type": "string"}
-                }
-              },
-              "additionalProperties": false
-            }),
+                PropertyDefinition {
+                    name: "humidity".to_string(),
+                    label: "Humidity".to_string(),
+                    property_type: PropertyType::String,
+                    default_value: Value::from("normal"),
+                    enum_values: Vec::new(),
+                },
+            ],
         }
     }
 
@@ -845,24 +950,30 @@ mod tests {
             color: [10, 20, 30],
             material: "soil".to_string(),
             durability: 40,
-            attrs: HashMap::from([("terrain".to_string(), "plain".to_string())]),
+            properties: HashMap::from([
+                ("terrain".to_string(), Value::from("plain")),
+                ("humidity".to_string(), Value::from("dry")),
+            ]),
         }
     }
 
     #[test]
     fn validates_valid_pixel() {
         let registry = sample_registry();
-        let result = validate_pixel(&sample_pixel(), &registry);
+        let mut pixel = sample_pixel();
+        let result = normalize_and_validate_pixel(&mut pixel, &registry);
         assert!(result.is_ok());
     }
 
     #[test]
-    fn rejects_invalid_material_and_attrs() {
+    fn rejects_invalid_material_and_properties() {
         let registry = sample_registry();
         let mut pixel = sample_pixel();
         pixel.material = "lava".to_string();
-        pixel.attrs.insert("unknown".to_string(), "x".to_string());
-        let result = validate_pixel(&pixel, &registry);
+        pixel
+            .properties
+            .insert("unknown".to_string(), Value::from("x"));
+        let result = normalize_and_validate_pixel(&mut pixel, &registry);
         assert!(matches!(result, Err(AppError::Validation { .. })));
     }
 
@@ -880,96 +991,54 @@ mod tests {
     }
 
     #[test]
-    fn historical_chunk_without_attrs_is_compatible() {
+    fn historical_chunk_with_attrs_is_compatible() {
         let old = serde_json::json!({
           "coord": {"x": 0, "y": 0},
           "cells": {
             "0,0": {
               "color": [1, 2, 3],
               "material": "soil",
-              "durability": 5
+              "durability": 5,
+              "attrs": {
+                "terrain": "plain"
+              }
             }
           }
         });
-        let parsed: ChunkData = serde_json::from_value(old).expect("legacy parse");
-        let pixel = parsed.cells.get("0,0").expect("pixel present");
-        assert!(pixel.attrs.is_empty());
+        let mut parsed: ChunkData = serde_json::from_value(old).expect("legacy parse");
+        let pixel = parsed.cells.get_mut("0,0").expect("pixel present");
+        pixel.normalize_legacy_shape();
+        assert_eq!(pixel.properties.get("terrain"), Some(&Value::from("plain")));
+        assert!(!pixel.properties.contains_key("attrs"));
     }
 
     #[test]
-    fn loads_registry_from_files() {
+    fn loads_registry_from_new_format_files() {
         let temp = tempdir().expect("temp dir");
         let root = temp.path();
         fs::write(
             root.join("registry.json"),
             serde_json::to_string(&serde_json::json!({
               "version": "1.0.0",
-              "materials_file": "materials.json",
-              "attributes_file": "attributes.json",
-              "value_sets_file": "value_sets.json",
-              "schema_file": "pixel.schema.json"
+              "materials": [{"id": "soil", "label": "Soil", "max_durability": 100}],
+              "properties": [
+                {
+                  "name": "terrain",
+                  "label": "Terrain",
+                  "type": "enum",
+                  "default_value": "plain",
+                  "enum_values": ["plain", "rock"]
+                }
+              ]
             }))
             .expect("registry.json"),
         )
         .expect("write registry");
 
-        fs::write(
-            root.join("materials.json"),
-            serde_json::to_string(&serde_json::json!({
-              "materials": [{"id": "soil", "label": "Soil", "max_durability": 100}]
-            }))
-            .expect("materials"),
-        )
-        .expect("write materials");
-
-        fs::write(
-            root.join("attributes.json"),
-            serde_json::to_string(&serde_json::json!({
-              "attributes": [{"id": "terrain", "label": "Terrain", "value_set": "terrain_kind", "required": false}]
-            }))
-            .expect("attributes"),
-        )
-        .expect("write attributes");
-
-        fs::write(
-            root.join("value_sets.json"),
-            serde_json::to_string(&serde_json::json!({
-              "value_sets": {"terrain_kind": ["plain"]}
-            }))
-            .expect("value sets"),
-        )
-        .expect("write values");
-
-        fs::write(
-            root.join("pixel.schema.json"),
-            serde_json::to_string(&serde_json::json!({
-              "$schema": "http://json-schema.org/draft-07/schema#",
-              "type": "object",
-              "required": ["color", "material", "durability", "attrs"],
-              "properties": {
-                "color": {
-                  "type": "array",
-                  "minItems": 3,
-                  "maxItems": 3,
-                  "items": {"type": "integer", "minimum": 0, "maximum": 255}
-                },
-                "material": {"type": "string"},
-                "durability": {"type": "integer", "minimum": 0},
-                "attrs": {
-                  "type": "object",
-                  "additionalProperties": {"type": "string"}
-                }
-              },
-              "additionalProperties": false
-            }))
-            .expect("schema"),
-        )
-        .expect("write schema");
-
         let snapshot = load_registry_from_dir(root).expect("load registry");
         assert_eq!(snapshot.version, "1.0.0");
         assert_eq!(snapshot.materials.len(), 1);
-        assert_eq!(snapshot.attributes.len(), 1);
-        assert!(snapshot.value_sets.contains_key("terrain_kind"));
+        assert_eq!(snapshot.properties.len(), 1);
+        assert_eq!(snapshot.properties[0].name, "terrain");
     }
 }

@@ -13,12 +13,13 @@ export interface WorldMeta {
   chunk_size: number;
 }
 
-export interface PixelCell {
+export type PixelPrimitive = string | number | boolean;
+
+export type PixelCell = {
   color: RGB;
   material: string;
   durability: number;
-  attrs: Record<string, string>;
-}
+} & Record<string, unknown>;
 
 export interface ChunkData {
   coord: ChunkCoord;
@@ -31,19 +32,20 @@ export interface MaterialDefinition {
   max_durability: number;
 }
 
-export interface AttributeDefinition {
-  id: string;
+export type PropertyType = "int" | "float" | "bool" | "string" | "enum";
+
+export interface PropertyDefinition {
+  name: string;
   label: string;
-  value_set: string;
-  required: boolean;
+  type: PropertyType;
+  default_value: PixelPrimitive;
+  enum_values: string[];
 }
 
 export interface RegistrySnapshot {
   version: string;
   materials: MaterialDefinition[];
-  attributes: AttributeDefinition[];
-  value_sets: Record<string, string[]>;
-  schema: unknown;
+  properties: PropertyDefinition[];
 }
 
 export interface ValidationError {

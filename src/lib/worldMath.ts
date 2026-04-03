@@ -73,12 +73,14 @@ export function markDirtyChunks(existing: Set<string>, coords: ChunkCoord[]): Se
 }
 
 export function buildAttributeOptions(snapshot: {
-  attributes: { id: string; value_set: string }[];
-  value_sets: Record<string, string[]>;
+  properties: { name: string; type: string; enum_values?: string[] }[];
 }): Record<string, string[]> {
   const result: Record<string, string[]> = {};
-  for (const attr of snapshot.attributes) {
-    result[attr.id] = snapshot.value_sets[attr.value_set] ?? [];
+  for (const property of snapshot.properties) {
+    if (property.type !== "enum") {
+      continue;
+    }
+    result[property.name] = property.enum_values ?? [];
   }
   return result;
 }
