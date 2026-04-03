@@ -60,16 +60,21 @@ jobs:
         run: |
           New-Item -Path artifacts -ItemType Directory -Force | Out-Null
 
-          $editorInstaller = Get-ChildItem "src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe" | Select-Object -First 1
+          $editorCandidates = @()
+          $editorCandidates += Get-ChildItem -Path "src-tauri/target" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "[\\/]+bundle[\\/]+nsis[\\/]+" }
+          $editorCandidates += Get-ChildItem -Path "target" -Filter "*.exe" -Recurse -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match "[\\/]+bundle[\\/]+nsis[\\/]+" }
+          $editorInstaller = $editorCandidates | Sort-Object LastWriteTime -Descending | Select-Object -First 1
           if (-not $editorInstaller) {
-            Write-Error "Editor installer not found in expected path."
+            Write-Error "Editor installer not found under target/**/bundle/nsis/*.exe."
             exit 1
           }
           Copy-Item $editorInstaller.FullName artifacts/Ink-Town-Editor-x64-Installer.exe -Force
 
           $gameCandidates = @(
             "target/x86_64-pc-windows-msvc/release/ink-town-game.exe",
-            "target/x86_64-pc-windows-msvc/release/ink_town_game.exe"
+            "target/x86_64-pc-windows-msvc/release/ink_town_game.exe",
+            "target/release/ink-town-game.exe",
+            "target/release/ink_town_game.exe"
           )
           $gameExe = $gameCandidates | Where-Object { Test-Path $_ } | Select-Object -First 1
           if (-not $gameExe) {
