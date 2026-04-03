@@ -9,6 +9,9 @@
     "preview": "node node_modules/vite/bin/vite.js preview",
     "test": "node node_modules/vitest/vitest.mjs run",
     "test:watch": "node node_modules/vitest/vitest.mjs",
+    "rust:test": "cargo test -p world-core -p sim-core --manifest-path Cargo.toml && cargo test --manifest-path src-tauri/Cargo.toml",
+    "game:check": "cargo check -p ink-town-game --manifest-path Cargo.toml",
+    "game:run": "cargo run -p ink-town-game --manifest-path Cargo.toml",
     "tauri": "node node_modules/@tauri-apps/cli/tauri.js",
     "tauri:dev": "node node_modules/@tauri-apps/cli/tauri.js dev --features desktop",
     "tauri:build": "node node_modules/@tauri-apps/cli/tauri.js build --features desktop"

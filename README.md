@@ -1,60 +1,90 @@
 # Ink Town V1
 
-Ink Town V1 is a desktop 2D world editor built with Tauri + React + Rust core.
+Ink Town V1 now includes two desktop apps in one repository:
 
-## What is implemented
+- `Ink Town Editor` (Tauri + React): map editing
+- `Ink Town Game` (Rust + Bevy): observer simulator with 20 NPC planning loop
 
-- World load/render/edit/save loop
-- Infinite chunk map storage (`data/world/chunks/c_x_y.json`)
-- Pixel model with extensible flat JSON fields (`color`, `material`, `durability`, custom properties)
-- Registry-driven material/attribute/value options (`data/registry/`)
-- Rust-side schema + registry validation
-- Canvas2D dirty-chunk rendering and basic map editor GUI
+## Architecture
 
-## Project structure
+Rust workspace modules:
 
-- `src-tauri/`: Rust core + Tauri commands
+- `crates/world-core`: shared world model, chunk IO, registry validation, pixel patch application
+- `crates/sim-core`: event queue engine, conflict detection/replan, observation compression, planner schema validation
+- `src-tauri`: editor desktop shell and command bridge (delegates to `world-core`)
+- `apps/game-client`: Bevy observer client + LLM gateway
+
+Frontend editor modules:
+
 - `src/renderer/`: Canvas renderer
 - `src/editor/`: editor GUI
-- `data/world/`: world meta + chunk files
-- `data/registry/`: registry indexes + schema
+
+Data:
+
+- `data/world/`: `world.json` + chunk files (`chunks/c_x_y.json`)
+- `data/registry/`: registry schema (`registry.json`)
 
 ## Commands
 
+Install JS dependencies:
+
 ```bash
 npm install
+```
+
+Editor frontend checks:
+
+```bash
 npm run test
 npm run build
 ```
 
-Rust core tests (without desktop WebKit dependencies):
+Rust tests (`world-core`, `sim-core`, editor tauri layer):
 
 ```bash
-cargo test --manifest-path src-tauri/Cargo.toml
+npm run rust:test
 ```
 
-Run desktop app (requires Tauri Linux system libs):
+Run editor:
 
 ```bash
 npm run tauri:dev
 ```
 
-Build desktop app:
+Build editor:
 
 ```bash
 npm run tauri:build
 ```
 
+Check game app compile:
+
+```bash
+npm run game:check
+```
+
+Run game app:
+
+```bash
+npm run game:run
+```
+
+## Game Runtime Defaults
+
+- Render FPS: unlimited by default (`INK_TOWN_RENDER_FPS=30|60|120|unlimited`)
+- Logic tick: 10Hz fixed (`INK_TOWN_LOGIC_HZ`)
+- NPC count: 20 (`INK_TOWN_NPC_COUNT`)
+- World meta path: `data/world/world.json` (`INK_TOWN_WORLD_META`)
+- LLM provider:
+  - If `OPENAI_API_KEY` is set, uses OpenAI-compatible gateway
+  - Otherwise uses built-in mock provider
+
 ## GitHub CI
 
 - Workflow: `.github/workflows/windows-editor-build.yml`
-- Trigger:
-  - push to `main` / `master`
-  - manual run from `workflow_dispatch`
-- Output artifact:
-  - `ink-town-editor-windows-x64-exe`
-  - from `src-tauri/target/x86_64-pc-windows-msvc/release/bundle/nsis/*.exe`
+- Current target: Windows x64 editor NSIS EXE artifact + release draft
 
-## Linux dependencies for Tauri
+## Notes
 
-On Linux, desktop feature compilation needs WebKitGTK stack. If build fails with `libsoup-3.0` or `javascriptcoregtk-4.1` missing, install corresponding system packages and retry.
+- Runtime format policy is strict current-format only (no legacy compatibility branches).
+- If future format changes are needed, use explicit migration scripts rather than runtime fallback code.
