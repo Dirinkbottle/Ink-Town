@@ -114,6 +114,58 @@ select {
   background: #eef3fa;
   overflow: hidden;
   padding: 12px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.canvas-stage {
+  position: relative;
+  flex: 1;
+  min-height: 0;
+}
+
+.canvas-hud {
+  position: absolute;
+  top: 10px;
+  left: 10px;
+  display: flex;
+  gap: 6px;
+  flex-wrap: wrap;
+  pointer-events: none;
+}
+
+.hud-pill {
+  padding: 3px 8px;
+  border-radius: 999px;
+  border: 1px solid rgba(0, 0, 0, 0.1);
+  background: rgba(255, 255, 255, 0.9);
+  color: #2c3950;
+  font-size: 0.78rem;
+  backdrop-filter: blur(2px);
+}
+
+.status-bar {
+  border: 1px solid var(--line);
+  border-radius: 10px;
+  background: #ffffff;
+  padding: 8px 10px;
+}
+
+.status-main {
+  color: var(--text);
+  font-size: 0.86rem;
+  font-weight: 600;
+  line-height: 1.35;
+}
+
+.status-meta {
+  margin-top: 6px;
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+  color: var(--muted);
+  font-size: 0.78rem;
 }
 
 .section {
@@ -285,5 +337,9 @@ canvas {
 
   .canvas-wrap {
     min-height: 55vh;
+  }
+
+  .status-meta {
+    gap: 8px;
   }
 }

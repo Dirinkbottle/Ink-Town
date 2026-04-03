@@ -20,7 +20,9 @@ import { buildAttributeOptions, buildPixelPatch, chunkKey, markDirtyChunks, worl
 import { getGithubUpdateConfig } from "../updater/config";
 import { checkGithubReleaseUpdate } from "../updater/githubReleaseUpdater";
 import type { UpdateCheckResult } from "../updater/types";
+import { CanvasHud } from "./components/CanvasHud";
 import { EditorSidebar } from "./components/EditorSidebar";
+import { EditorStatusBar } from "./components/EditorStatusBar";
 import { corePixelKeys, defaultMeta, defaultPixel } from "./constants";
 import type { PanelSectionId } from "./types/panel";
 import {
@@ -688,84 +690,89 @@ export function EditorApp() {
       />
 
       <main className="canvas-wrap">
-        <canvas
-          ref={canvasRef}
-          className="world-canvas"
-          style={{ cursor: canvasCursor }}
-          onContextMenu={(e) => e.preventDefault()}
-          onWheel={(e) => {
-            e.preventDefault();
-            const renderer = rendererRef.current;
-            if (!renderer) {
-              return;
-            }
-            const factor = e.deltaY < 0 ? 1.15 : 0.88;
-            renderer.zoomAt(factor, e.nativeEvent.offsetX, e.nativeEvent.offsetY);
-            syncCameraInfo();
-            void ensureVisibleChunks();
-          }}
-          onPointerDown={(e) => {
-            if (e.button === 1) {
-              panningRef.current = true;
-              setInteractionMode("panning");
-              e.currentTarget.setPointerCapture(e.pointerId);
+        <div className="canvas-stage">
+          <canvas
+            ref={canvasRef}
+            className="world-canvas"
+            style={{ cursor: canvasCursor }}
+            onContextMenu={(e) => e.preventDefault()}
+            onWheel={(e) => {
               e.preventDefault();
-              return;
-            }
-            if (e.button === 0) {
-              if (!worldLoadedRef.current) {
-                setStatus("请先打开或新建地图");
+              const renderer = rendererRef.current;
+              if (!renderer) {
                 return;
               }
-              paintingRef.current = true;
-              setInteractionMode("painting");
-              e.currentTarget.setPointerCapture(e.pointerId);
-              void paintAt(e.clientX, e.clientY);
-            }
-          }}
-          onPointerMove={(e) => {
-            inspectAt(e.clientX, e.clientY);
-            if (panningRef.current) {
-              rendererRef.current?.panByPixels(e.movementX, e.movementY);
+              const factor = e.deltaY < 0 ? 1.15 : 0.88;
+              renderer.zoomAt(factor, e.nativeEvent.offsetX, e.nativeEvent.offsetY);
               syncCameraInfo();
               void ensureVisibleChunks();
-              return;
-            }
-            if (paintingRef.current) {
-              void paintAt(e.clientX, e.clientY);
-            }
-          }}
-          onPointerUp={(e) => {
-            if (e.button === 1) {
-              panningRef.current = false;
-            }
-            if (e.button === 0) {
+            }}
+            onPointerDown={(e) => {
+              if (e.button === 1) {
+                panningRef.current = true;
+                setInteractionMode("panning");
+                e.currentTarget.setPointerCapture(e.pointerId);
+                e.preventDefault();
+                return;
+              }
+              if (e.button === 0) {
+                if (!worldLoadedRef.current) {
+                  setStatus("请先打开或新建地图");
+                  return;
+                }
+                paintingRef.current = true;
+                setInteractionMode("painting");
+                e.currentTarget.setPointerCapture(e.pointerId);
+                void paintAt(e.clientX, e.clientY);
+              }
+            }}
+            onPointerMove={(e) => {
+              inspectAt(e.clientX, e.clientY);
+              if (panningRef.current) {
+                rendererRef.current?.panByPixels(e.movementX, e.movementY);
+                syncCameraInfo();
+                void ensureVisibleChunks();
+                return;
+              }
+              if (paintingRef.current) {
+                void paintAt(e.clientX, e.clientY);
+              }
+            }}
+            onPointerUp={(e) => {
+              if (e.button === 1) {
+                panningRef.current = false;
+              }
+              if (e.button === 0) {
+                paintingRef.current = false;
+                lastPaintRef.current = "";
+              }
+              if (!panningRef.current && !paintingRef.current) {
+                setInteractionMode("idle");
+              }
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+              }
+            }}
+            onPointerCancel={(e) => {
               paintingRef.current = false;
+              panningRef.current = false;
               lastPaintRef.current = "";
-            }
-            if (!panningRef.current && !paintingRef.current) {
               setInteractionMode("idle");
-            }
-            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-              e.currentTarget.releasePointerCapture(e.pointerId);
-            }
-          }}
-          onPointerCancel={(e) => {
-            paintingRef.current = false;
-            panningRef.current = false;
-            lastPaintRef.current = "";
-            setInteractionMode("idle");
-            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
-              e.currentTarget.releasePointerCapture(e.pointerId);
-            }
-          }}
-          onPointerLeave={() => {
-            paintingRef.current = false;
-            panningRef.current = false;
-            lastPaintRef.current = "";
-            setInteractionMode("idle");
-          }}
-        />
+              if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+                e.currentTarget.releasePointerCapture(e.pointerId);
+              }
+            }}
+            onPointerLeave={() => {
+              paintingRef.current = false;
+              panningRef.current = false;
+              lastPaintRef.current = "";
+              setInteractionMode("idle");
+            }}
+          />
+          <CanvasHud interactionMode={interactionMode} brushSize={brushSize} showGrid={showGrid} worldLoaded={isWorldLoaded} />
+        </div>
+
+        <EditorStatusBar status={status} selectedCoord={selectedCoord} cameraInfo={cameraInfo} sidebarCollapsed={sidebarCollapsed} />
       </main>
     </div>
   );
