@@ -1,0 +1,24 @@
+{
+  "materials": [
+    {
+      "id": "soil",
+      "label": "Soil",
+      "max_durability": 100
+    },
+    {
+      "id": "stone",
+      "label": "Stone",
+      "max_durability": 250
+    },
+    {
+      "id": "wood",
+      "label": "Wood",
+      "max_durability": 80
+    },
+    {
+      "id": "water",
+      "label": "Water",
+      "max_durability": 1
+    }
+  ]
+}

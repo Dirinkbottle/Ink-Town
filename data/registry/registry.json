@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "materials_file": "materials.json",
+  "attributes_file": "attributes.json",
+  "value_sets_file": "value_sets.json",
+  "schema_file": "pixel.schema.json"
+}

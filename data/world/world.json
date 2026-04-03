@@ -1,0 +1,7 @@
+{
+  "version": "1.0.0",
+  "registry_version": "1.0.0",
+  "small_pixel_size": 2,
+  "big_grid_size": 32,
+  "chunk_size": 32
+}

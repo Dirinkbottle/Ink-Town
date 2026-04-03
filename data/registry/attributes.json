@@ -1,0 +1,22 @@
+{
+  "attributes": [
+    {
+      "id": "terrain",
+      "label": "Terrain",
+      "value_set": "terrain_kind",
+      "required": true
+    },
+    {
+      "id": "humidity",
+      "label": "Humidity",
+      "value_set": "humidity_level",
+      "required": false
+    },
+    {
+      "id": "biome",
+      "label": "Biome",
+      "value_set": "biome_type",
+      "required": false
+    }
+  ]
+}

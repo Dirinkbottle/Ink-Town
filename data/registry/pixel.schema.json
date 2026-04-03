@@ -1,0 +1,32 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "PixelCell",
+  "type": "object",
+  "required": ["color", "material", "durability", "attrs"],
+  "properties": {
+    "color": {
+      "type": "array",
+      "minItems": 3,
+      "maxItems": 3,
+      "items": {
+        "type": "integer",
+        "minimum": 0,
+        "maximum": 255
+      }
+    },
+    "material": {
+      "type": "string"
+    },
+    "durability": {
+      "type": "integer",
+      "minimum": 0
+    },
+    "attrs": {
+      "type": "object",
+      "additionalProperties": {
+        "type": "string"
+      }
+    }
+  },
+  "additionalProperties": false
+}

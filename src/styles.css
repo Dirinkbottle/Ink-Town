@@ -1,0 +1,108 @@
+:root {
+  --bg: #11161d;
+  --panel: #1a2230;
+  --panel-2: #212b3c;
+  --text: #eaf1fb;
+  --muted: #9cb0cc;
+  --accent: #62d2a2;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  font-family: "IBM Plex Sans", "Noto Sans SC", sans-serif;
+  color: var(--text);
+  background: radial-gradient(circle at 20% 0%, #1c2535, var(--bg));
+}
+
+button,
+input,
+select {
+  font: inherit;
+}
+
+.app {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  min-height: 100vh;
+}
+
+.sidebar {
+  padding: 16px;
+  background: linear-gradient(180deg, var(--panel), #141a25);
+  border-right: 1px solid #2a3447;
+  overflow-y: auto;
+}
+
+.canvas-wrap {
+  padding: 12px;
+  overflow: auto;
+}
+
+.section {
+  margin-bottom: 14px;
+  padding: 12px;
+  border: 1px solid #2a3447;
+  border-radius: 10px;
+  background: var(--panel-2);
+}
+
+.row {
+  display: flex;
+  gap: 8px;
+  align-items: center;
+  margin-top: 8px;
+}
+
+.row label {
+  min-width: 90px;
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.row input,
+.row select,
+.row button {
+  flex: 1;
+  min-width: 0;
+  padding: 6px 8px;
+  border-radius: 8px;
+  border: 1px solid #3d4d69;
+  background: #0d1520;
+  color: var(--text);
+}
+
+.row button {
+  background: #253955;
+  cursor: pointer;
+}
+
+.row button.primary {
+  background: #1d7556;
+  border-color: #299b73;
+}
+
+canvas {
+  border: 1px solid #2d3a4f;
+  image-rendering: pixelated;
+  background: #0b0f16;
+}
+
+.status {
+  color: var(--muted);
+  font-size: 0.9rem;
+}
+
+.attr-pill {
+  display: inline-flex;
+  margin-right: 8px;
+  margin-bottom: 6px;
+  padding: 4px 8px;
+  border-radius: 999px;
+  background: #152538;
+  border: 1px solid #2d4766;
+  font-size: 0.82rem;
+}

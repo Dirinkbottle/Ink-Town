@@ -1,0 +1,7 @@
+{
+  "value_sets": {
+    "terrain_kind": ["plain", "forest", "rock", "water"],
+    "humidity_level": ["dry", "normal", "wet"],
+    "biome_type": ["temperate", "desert", "tundra"]
+  }
+}

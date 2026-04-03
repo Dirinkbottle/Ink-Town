@@ -1,0 +1,27 @@
+[package]
+name = "ink_town"
+version = "0.1.0"
+description = "Ink Town world core"
+authors = ["Ink Town"]
+edition = "2021"
+
+[lib]
+name = "ink_town_lib"
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[features]
+default = []
+desktop = ["dep:tauri", "dep:tauri-build"]
+
+[build-dependencies]
+tauri-build = { version = "2.0.2", optional = true }
+
+[dependencies]
+serde = { version = "1.0", features = ["derive"] }
+serde_json = "1.0"
+thiserror = "2.0"
+jsonschema = "0.18"
+tauri = { version = "2.1.1", optional = true }
+
+[dev-dependencies]
+tempfile = "3.12"
