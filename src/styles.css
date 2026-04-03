@@ -102,6 +102,14 @@ select {
   text-orientation: mixed;
 }
 
+.sidebar-tools {
+  margin-bottom: 12px;
+  padding: 10px;
+  border: 1px dashed var(--line-strong);
+  border-radius: 10px;
+  background: #f9fcff;
+}
+
 .canvas-wrap {
   background: #eef3fa;
   overflow: hidden;

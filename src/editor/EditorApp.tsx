@@ -116,6 +116,15 @@ export function EditorApp() {
   const toggleSection = useCallback((id: PanelSectionId) => {
     setSectionCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
   }, []);
+  const setAllSectionsCollapsed = useCallback((collapsed: boolean) => {
+    setSectionCollapsed((prev) => {
+      const next: Record<PanelSectionId, boolean> = { ...prev };
+      for (const key of Object.keys(next) as PanelSectionId[]) {
+        next[key] = collapsed;
+      }
+      return next;
+    });
+  }, []);
 
   const syncCameraInfo = useCallback(() => {
     const renderer = rendererRef.current;
@@ -628,6 +637,7 @@ export function EditorApp() {
         sectionCollapsed={sectionCollapsed}
         onToggleSidebar={() => setSidebarCollapsed((prev) => !prev)}
         onToggleSection={toggleSection}
+        onSetAllSectionsCollapsed={setAllSectionsCollapsed}
         metaPath={metaPath}
         status={status}
         appVersion={appVersion}

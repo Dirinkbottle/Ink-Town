@@ -1,3 +1,4 @@
+import { useMemo, useState } from "react";
 import type { PixelCell, PixelPrimitive, PropertyType, RegistrySnapshot } from "../../renderer/types";
 import type { UpdateCheckResult } from "../../updater/types";
 import type { PanelSectionId } from "../types/panel";
@@ -16,6 +17,7 @@ interface EditorSidebarProps {
   sectionCollapsed: Record<PanelSectionId, boolean>;
   onToggleSidebar: () => void;
   onToggleSection: (id: PanelSectionId) => void;
+  onSetAllSectionsCollapsed: (collapsed: boolean) => void;
   metaPath: string;
   status: string;
   appVersion: string;
@@ -71,6 +73,7 @@ export function EditorSidebar(props: EditorSidebarProps) {
     sectionCollapsed,
     onToggleSidebar,
     onToggleSection,
+    onSetAllSectionsCollapsed,
     metaPath,
     status,
     appVersion,
@@ -119,6 +122,21 @@ export function EditorSidebar(props: EditorSidebarProps) {
     selectedDynamicProps,
     formatPropertyValue
   } = props;
+  const [sectionQuery, setSectionQuery] = useState("");
+  const normalizedQuery = sectionQuery.trim().toLowerCase();
+  const visibleSections = useMemo(() => {
+    const has = (title: string) => normalizedQuery.length === 0 || title.toLowerCase().includes(normalizedQuery);
+    return {
+      map: has("地图"),
+      update: has("更新"),
+      view: has("视角"),
+      brush: has("画笔"),
+      brushProps: has("画笔属性"),
+      registry: has("索引库编辑"),
+      inspect: has("检视")
+    } satisfies Record<PanelSectionId, boolean>;
+  }, [normalizedQuery]);
+  const visibleCount = useMemo(() => Object.values(visibleSections).filter(Boolean).length, [visibleSections]);
 
   return (
     <aside className="sidebar">
@@ -128,87 +146,113 @@ export function EditorSidebar(props: EditorSidebarProps) {
         <div className="sidebar-collapsed-help">点击右上角按钮展开功能栏</div>
       ) : (
         <>
-          <PanelSection title="地图" collapsed={sectionCollapsed.map} onToggle={() => onToggleSection("map")}>
-            <MapStatusSection metaPath={metaPath} status={status} />
-          </PanelSection>
+          <div className="sidebar-tools">
+            <div className="row">
+              <label>筛选</label>
+              <input value={sectionQuery} onChange={(e) => setSectionQuery(e.target.value)} placeholder="搜索分组，例如 画笔 / 更新" />
+            </div>
+            <div className="row row-buttons">
+              <button onClick={() => onSetAllSectionsCollapsed(false)}>全部展开</button>
+              <button onClick={() => onSetAllSectionsCollapsed(true)}>全部折叠</button>
+            </div>
+            <div className="status">显示分组：{visibleCount}/7</div>
+          </div>
 
-          <PanelSection title="更新" collapsed={sectionCollapsed.update} onToggle={() => onToggleSection("update")}>
-            <UpdateSection
-              appVersion={appVersion}
-              updateStatus={updateStatus}
-              updateInfo={updateInfo}
-              isCheckingUpdate={isCheckingUpdate}
-              onCheckUpdate={onCheckUpdates}
-              onOpenUpdatePage={onOpenUpdatePage}
-            />
-          </PanelSection>
+          {visibleSections.map ? (
+            <PanelSection title="地图" collapsed={sectionCollapsed.map} onToggle={() => onToggleSection("map")}>
+              <MapStatusSection metaPath={metaPath} status={status} />
+            </PanelSection>
+          ) : null}
 
-          <PanelSection title="视角" collapsed={sectionCollapsed.view} onToggle={() => onToggleSection("view")}>
-            <ViewSection
-              cameraX={cameraInfo.x}
-              cameraY={cameraInfo.y}
-              zoom={cameraInfo.zoom}
-              showGrid={showGrid}
-              onToggleGrid={onToggleGrid}
-            />
-          </PanelSection>
+          {visibleSections.update ? (
+            <PanelSection title="更新" collapsed={sectionCollapsed.update} onToggle={() => onToggleSection("update")}>
+              <UpdateSection
+                appVersion={appVersion}
+                updateStatus={updateStatus}
+                updateInfo={updateInfo}
+                isCheckingUpdate={isCheckingUpdate}
+                onCheckUpdate={onCheckUpdates}
+                onOpenUpdatePage={onOpenUpdatePage}
+              />
+            </PanelSection>
+          ) : null}
 
-          <PanelSection title="画笔" collapsed={sectionCollapsed.brush} onToggle={() => onToggleSection("brush")}>
-            <BrushSection
-              brushColor={brushColor}
-              brushMaterial={brushMaterial}
-              brushDurability={brushDurability}
-              brushSize={brushSize}
-              materials={registry?.materials ?? []}
-              onChangeColor={onChangeBrushColor}
-              onChangeMaterial={onChangeBrushMaterial}
-              onChangeDurability={onChangeBrushDurability}
-              onChangeBrushSize={onChangeBrushSize}
-            />
-          </PanelSection>
+          {visibleSections.view ? (
+            <PanelSection title="视角" collapsed={sectionCollapsed.view} onToggle={() => onToggleSection("view")}>
+              <ViewSection
+                cameraX={cameraInfo.x}
+                cameraY={cameraInfo.y}
+                zoom={cameraInfo.zoom}
+                showGrid={showGrid}
+                onToggleGrid={onToggleGrid}
+              />
+            </PanelSection>
+          ) : null}
 
-          <PanelSection title="画笔属性" collapsed={sectionCollapsed.brushProps} onToggle={() => onToggleSection("brushProps")}>
-            <BrushPropertiesSection
-              properties={registry?.properties ?? []}
-              brushProperties={brushProperties}
-              enumOptions={enumOptions}
-              onChangeProperty={onChangeBrushProperty}
-            />
-          </PanelSection>
+          {visibleSections.brush ? (
+            <PanelSection title="画笔" collapsed={sectionCollapsed.brush} onToggle={() => onToggleSection("brush")}>
+              <BrushSection
+                brushColor={brushColor}
+                brushMaterial={brushMaterial}
+                brushDurability={brushDurability}
+                brushSize={brushSize}
+                materials={registry?.materials ?? []}
+                onChangeColor={onChangeBrushColor}
+                onChangeMaterial={onChangeBrushMaterial}
+                onChangeDurability={onChangeBrushDurability}
+                onChangeBrushSize={onChangeBrushSize}
+              />
+            </PanelSection>
+          ) : null}
 
-          <PanelSection title="索引库编辑" collapsed={sectionCollapsed.registry} onToggle={() => onToggleSection("registry")}>
-            <RegistryEditorSection
-              registryVersionInput={registryVersionInput}
-              newMaterialId={newMaterialId}
-              newMaterialLabel={newMaterialLabel}
-              newMaterialMaxDurability={newMaterialMaxDurability}
-              newPropertyName={newPropertyName}
-              newPropertyLabel={newPropertyLabel}
-              newPropertyType={newPropertyType}
-              newPropertyDefault={newPropertyDefault}
-              newPropertyEnumValues={newPropertyEnumValues}
-              onSetRegistryVersionInput={onSetRegistryVersionInput}
-              onSetNewMaterialId={onSetNewMaterialId}
-              onSetNewMaterialLabel={onSetNewMaterialLabel}
-              onSetNewMaterialMaxDurability={onSetNewMaterialMaxDurability}
-              onAddMaterial={onAddMaterial}
-              onSetNewPropertyName={onSetNewPropertyName}
-              onSetNewPropertyLabel={onSetNewPropertyLabel}
-              onSetNewPropertyType={onSetNewPropertyType}
-              onSetNewPropertyDefault={onSetNewPropertyDefault}
-              onSetNewPropertyEnumValues={onSetNewPropertyEnumValues}
-              onAddProperty={onAddProperty}
-            />
-          </PanelSection>
+          {visibleSections.brushProps ? (
+            <PanelSection title="画笔属性" collapsed={sectionCollapsed.brushProps} onToggle={() => onToggleSection("brushProps")}>
+              <BrushPropertiesSection
+                properties={registry?.properties ?? []}
+                brushProperties={brushProperties}
+                enumOptions={enumOptions}
+                onChangeProperty={onChangeBrushProperty}
+              />
+            </PanelSection>
+          ) : null}
 
-          <PanelSection title="检视" collapsed={sectionCollapsed.inspect} onToggle={() => onToggleSection("inspect")}>
-            <InspectSection
-              selectedCoord={selectedCoord}
-              selectedPixel={selectedPixel}
-              selectedDynamicProps={selectedDynamicProps}
-              formatPropertyValue={formatPropertyValue}
-            />
-          </PanelSection>
+          {visibleSections.registry ? (
+            <PanelSection title="索引库编辑" collapsed={sectionCollapsed.registry} onToggle={() => onToggleSection("registry")}>
+              <RegistryEditorSection
+                registryVersionInput={registryVersionInput}
+                newMaterialId={newMaterialId}
+                newMaterialLabel={newMaterialLabel}
+                newMaterialMaxDurability={newMaterialMaxDurability}
+                newPropertyName={newPropertyName}
+                newPropertyLabel={newPropertyLabel}
+                newPropertyType={newPropertyType}
+                newPropertyDefault={newPropertyDefault}
+                newPropertyEnumValues={newPropertyEnumValues}
+                onSetRegistryVersionInput={onSetRegistryVersionInput}
+                onSetNewMaterialId={onSetNewMaterialId}
+                onSetNewMaterialLabel={onSetNewMaterialLabel}
+                onSetNewMaterialMaxDurability={onSetNewMaterialMaxDurability}
+                onAddMaterial={onAddMaterial}
+                onSetNewPropertyName={onSetNewPropertyName}
+                onSetNewPropertyLabel={onSetNewPropertyLabel}
+                onSetNewPropertyType={onSetNewPropertyType}
+                onSetNewPropertyDefault={onSetNewPropertyDefault}
+                onSetNewPropertyEnumValues={onSetNewPropertyEnumValues}
+                onAddProperty={onAddProperty}
+              />
+            </PanelSection>
+          ) : null}
+
+          {visibleSections.inspect ? (
+            <PanelSection title="检视" collapsed={sectionCollapsed.inspect} onToggle={() => onToggleSection("inspect")}>
+              <InspectSection
+                selectedCoord={selectedCoord}
+                selectedPixel={selectedPixel}
+                selectedDynamicProps={selectedDynamicProps}
+                formatPropertyValue={formatPropertyValue}
+              />
+            </PanelSection>
+          ) : null}
         </>
       )}
     </aside>
