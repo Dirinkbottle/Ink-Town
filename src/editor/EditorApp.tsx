@@ -1,4 +1,4 @@
-import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -20,7 +20,10 @@ import { buildAttributeOptions, buildPixelPatch, chunkKey, markDirtyChunks, worl
 import { getGithubUpdateConfig } from "../updater/config";
 import { checkGithubReleaseUpdate } from "../updater/githubReleaseUpdater";
 import type { UpdateCheckResult } from "../updater/types";
+import { PanelSection } from "./components/PanelSection";
+import { SidebarHeader } from "./components/SidebarHeader";
 import { corePixelKeys, defaultMeta, defaultPixel } from "./constants";
+import type { PanelSectionId } from "./types/panel";
 import {
   buildBrushOffsets,
   coerceValueByProperty,
@@ -30,27 +33,7 @@ import {
   parseCsvValues,
   parseDefaultValue
 } from "./utils/propertyHelpers";
-
-type PanelSectionId = "map" | "update" | "view" | "brush" | "brushProps" | "registry" | "inspect";
 type InteractionMode = "idle" | "painting" | "panning";
-
-function PanelSection(props: {
-  title: string;
-  collapsed: boolean;
-  onToggle: () => void;
-  children: ReactNode;
-}) {
-  const { title, collapsed, onToggle, children } = props;
-  return (
-    <section className={`section ${collapsed ? "is-collapsed" : ""}`}>
-      <button type="button" className="section-header" onClick={onToggle}>
-        <strong>{title}</strong>
-        <span className="section-arrow">{collapsed ? ">" : "v"}</span>
-      </button>
-      {!collapsed ? <div className="section-body">{children}</div> : null}
-    </section>
-  );
-}
 
 export function EditorApp() {
   const [metaPath, setMetaPath] = useState("data/world/world.json");
@@ -642,18 +625,7 @@ export function EditorApp() {
   return (
     <div className={`app ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
-        <div className="sidebar-header">
-          {!sidebarCollapsed ? <h1 className="title">Ink Town Editor</h1> : <span className="sidebar-collapsed-title">工具</span>}
-          <button
-            type="button"
-            className="sidebar-toggle"
-            onClick={() => setSidebarCollapsed((prev) => !prev)}
-            aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
-            title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
-          >
-            {sidebarCollapsed ? ">>" : "<<"}
-          </button>
-        </div>
+        <SidebarHeader collapsed={sidebarCollapsed} onToggle={() => setSidebarCollapsed((prev) => !prev)} />
 
         {sidebarCollapsed ? (
           <div className="sidebar-collapsed-help">点击右上角按钮展开功能栏</div>
