@@ -13,7 +13,7 @@
   "app": {
     "windows": [
       {
-        "title": "墨镇编辑器",
+        "title": "Ink Town Editor",
         "label": "main",
         "width": 1400,
         "height": 960,

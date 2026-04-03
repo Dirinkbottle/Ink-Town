@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { getVersion } from "@tauri-apps/api/app";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { open, save } from "@tauri-apps/plugin-dialog";
@@ -185,6 +185,27 @@ function buildBrushOffsets(size: number): Array<{ dx: number; dy: number }> {
   return offsets.length > 0 ? offsets : [{ dx: 0, dy: 0 }];
 }
 
+type PanelSectionId = "map" | "update" | "view" | "brush" | "brushProps" | "registry" | "inspect";
+type InteractionMode = "idle" | "painting" | "panning";
+
+function PanelSection(props: {
+  title: string;
+  collapsed: boolean;
+  onToggle: () => void;
+  children: ReactNode;
+}) {
+  const { title, collapsed, onToggle, children } = props;
+  return (
+    <section className={`section ${collapsed ? "is-collapsed" : ""}`}>
+      <button type="button" className="section-header" onClick={onToggle}>
+        <strong>{title}</strong>
+        <span className="section-arrow">{collapsed ? ">" : "v"}</span>
+      </button>
+      {!collapsed ? <div className="section-body">{children}</div> : null}
+    </section>
+  );
+}
+
 export function EditorApp() {
   const [metaPath, setMetaPath] = useState("data/world/world.json");
   const [meta, setMeta] = useState<WorldMeta>(defaultMeta);
@@ -194,6 +215,17 @@ export function EditorApp() {
   const [status, setStatus] = useState("就绪");
   const [isWorldLoaded, setIsWorldLoaded] = useState(false);
   const [showGrid, setShowGrid] = useState(true);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
+  const [sectionCollapsed, setSectionCollapsed] = useState<Record<PanelSectionId, boolean>>({
+    map: false,
+    update: false,
+    view: false,
+    brush: false,
+    brushProps: false,
+    registry: false,
+    inspect: false
+  });
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>("idle");
   const [selectedPixel, setSelectedPixel] = useState<PixelCell>(defaultPixel);
   const [selectedCoord, setSelectedCoord] = useState<{ x: number; y: number } | null>(null);
   const [cameraInfo, setCameraInfo] = useState({ x: 0, y: 0, zoom: 1 });
@@ -238,6 +270,24 @@ export function EditorApp() {
   }, [registry]);
 
   const selectedDynamicProps = useMemo(() => getPixelDynamicProperties(selectedPixel), [selectedPixel]);
+  const brushCursor = useMemo(() => {
+    const svg =
+      "<svg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 18 18'><rect x='3' y='1' width='4' height='10' fill='%23222'/><rect x='2' y='0' width='6' height='2' fill='%23ffffff'/><rect x='1' y='11' width='8' height='6' rx='1' fill='%232b7fff'/><rect x='3' y='13' width='4' height='2' fill='%23ffffff'/></svg>";
+    return `url("data:image/svg+xml,${encodeURIComponent(svg)}") 3 16, crosshair`;
+  }, []);
+  const canvasCursor = useMemo(() => {
+    if (!isWorldLoaded) {
+      return "not-allowed";
+    }
+    if (interactionMode === "panning") {
+      return "grabbing";
+    }
+    return brushCursor;
+  }, [brushCursor, interactionMode, isWorldLoaded]);
+
+  const toggleSection = useCallback((id: PanelSectionId) => {
+    setSectionCollapsed((prev) => ({ ...prev, [id]: !prev[id] }));
+  }, []);
 
   const syncCameraInfo = useCallback(() => {
     const renderer = rendererRef.current;
@@ -744,255 +794,279 @@ export function EditorApp() {
   };
 
   return (
-    <div className="app">
+    <div className={`app ${sidebarCollapsed ? "sidebar-collapsed" : ""}`}>
       <aside className="sidebar">
-        <h1 className="title">墨镇编辑器</h1>
-
-        <div className="section">
-          <strong>地图</strong>
-          <div className="row">
-            <label>元文件路径</label>
-            <input value={metaPath} readOnly />
-          </div>
-          <div className="status">请使用顶部菜单：新建 / 打开 / 保存</div>
-          <div className="status">{status}</div>
+        <div className="sidebar-header">
+          {!sidebarCollapsed ? <h1 className="title">Ink Town Editor</h1> : <span className="sidebar-collapsed-title">工具</span>}
+          <button
+            type="button"
+            className="sidebar-toggle"
+            onClick={() => setSidebarCollapsed((prev) => !prev)}
+            aria-label={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
+            title={sidebarCollapsed ? "展开侧边栏" : "收起侧边栏"}
+          >
+            {sidebarCollapsed ? ">>" : "<<"}
+          </button>
         </div>
 
-        <div className="section">
-          <strong>更新</strong>
-          <div className="status">当前版本：{appVersion}</div>
-          <div className="status">{updateStatus}</div>
-          {updateInfo ? (
-            <div className="status">
-              最新发布：{updateInfo.releaseName} ({updateInfo.latestVersion})
-            </div>
-          ) : null}
-          <div className="row row-buttons">
-            <button onClick={() => void handleCheckUpdates()} disabled={isCheckingUpdate}>
-              {isCheckingUpdate ? "检查中..." : "检查更新"}
-            </button>
-            <button onClick={() => void handleOpenUpdatePage()} disabled={!updateInfo}>
-              打开下载页
-            </button>
-          </div>
-        </div>
+        {sidebarCollapsed ? (
+          <div className="sidebar-collapsed-help">点击右上角按钮展开功能栏</div>
+        ) : (
+          <>
+            <PanelSection title="地图" collapsed={sectionCollapsed.map} onToggle={() => toggleSection("map")}>
+              <div className="row">
+                <label>Meta Path</label>
+                <input value={metaPath} readOnly />
+              </div>
+              <div className="status">请使用窗口菜单：新建 / 打开 / 保存</div>
+              <div className="status">{status}</div>
+            </PanelSection>
 
-        <div className="section">
-          <strong>视角</strong>
-          <div className="status">
-            坐标=({cameraInfo.x}, {cameraInfo.y}) 缩放={cameraInfo.zoom.toFixed(2)}x
-          </div>
-          <div className="status">中键拖拽平移 | 滚轮缩放 | 左键绘制</div>
-          <div className="row">
-            <label>网格</label>
-            <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
-          </div>
-        </div>
-
-        <div className="section">
-          <strong>画笔</strong>
-          <div className="row">
-            <label>颜色</label>
-            <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} />
-          </div>
-          <div className="row">
-            <label>材质</label>
-            <select value={brushMaterial} onChange={(e) => setBrushMaterial(e.target.value)}>
-              {(registry?.materials ?? []).map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.label} ({m.id})
-                </option>
-              ))}
-            </select>
-          </div>
-          <div className="row">
-            <label>耐久</label>
-            <input
-              type="number"
-              min={0}
-              value={brushDurability}
-              onChange={(e) => setBrushDurability(Math.max(0, Number(e.target.value) || 0))}
-            />
-          </div>
-          <div className="row">
-            <label>画笔大小</label>
-            <input
-              type="range"
-              min={1}
-              max={15}
-              step={1}
-              value={brushSize}
-              onChange={(e) => setBrushSize(Number(e.target.value) || 1)}
-            />
-            <span className="value-badge">{brushSize}</span>
-          </div>
-        </div>
-
-        <div className="section">
-          <strong>画笔属性</strong>
-          {(registry?.properties ?? []).map((property) => {
-            const value = brushProperties[property.name];
-            if (property.type === "enum") {
-              return (
-                <div className="row" key={property.name}>
-                  <label>{property.label}</label>
-                  <select
-                    value={typeof value === "string" ? value : String(property.default_value ?? "")}
-                    onChange={(e) => setBrushProperties((prev) => ({ ...prev, [property.name]: e.target.value }))}
-                  >
-                    {(enumOptions[property.name] ?? []).map((option) => (
-                      <option key={option} value={option}>
-                        {option}
-                      </option>
-                    ))}
-                  </select>
+            <PanelSection title="更新" collapsed={sectionCollapsed.update} onToggle={() => toggleSection("update")}>
+              <div className="status">当前版本：{appVersion}</div>
+              <div className="status">{updateStatus}</div>
+              {updateInfo ? (
+                <div className="status">
+                  最新发布：{updateInfo.releaseName} ({updateInfo.latestVersion})
                 </div>
-              );
-            }
+              ) : null}
+              <div className="row row-buttons">
+                <button onClick={() => void handleCheckUpdates()} disabled={isCheckingUpdate}>
+                  {isCheckingUpdate ? "检查中..." : "检查更新"}
+                </button>
+                <button onClick={() => void handleOpenUpdatePage()} disabled={!updateInfo}>
+                  打开下载页
+                </button>
+              </div>
+            </PanelSection>
 
-            if (property.type === "bool") {
-              return (
-                <div className="row" key={property.name}>
-                  <label>{property.label}</label>
-                  <input
-                    type="checkbox"
-                    checked={Boolean(value ?? property.default_value)}
-                    onChange={(e) => setBrushProperties((prev) => ({ ...prev, [property.name]: e.target.checked }))}
-                  />
-                </div>
-              );
-            }
+            <PanelSection title="视角" collapsed={sectionCollapsed.view} onToggle={() => toggleSection("view")}>
+              <div className="status">
+                坐标=({cameraInfo.x}, {cameraInfo.y}) 缩放={cameraInfo.zoom.toFixed(2)}x
+              </div>
+              <div className="status">中键拖拽平移 | 滚轮缩放 | 左键绘制</div>
+              <div className="row">
+                <label>网格</label>
+                <input type="checkbox" checked={showGrid} onChange={(e) => setShowGrid(e.target.checked)} />
+              </div>
+            </PanelSection>
 
-            const isNumber = property.type === "int" || property.type === "float";
-            return (
-              <div className="row" key={property.name}>
-                <label>{property.label}</label>
+            <PanelSection title="画笔" collapsed={sectionCollapsed.brush} onToggle={() => toggleSection("brush")}>
+              <div className="row">
+                <label>颜色</label>
+                <input type="color" value={brushColor} onChange={(e) => setBrushColor(e.target.value)} />
+              </div>
+              <div className="row">
+                <label>材质</label>
+                <select value={brushMaterial} onChange={(e) => setBrushMaterial(e.target.value)}>
+                  {(registry?.materials ?? []).map((m) => (
+                    <option key={m.id} value={m.id}>
+                      {m.label} ({m.id})
+                    </option>
+                  ))}
+                </select>
+              </div>
+              <div className="row">
+                <label>耐久</label>
                 <input
-                  type={isNumber ? "number" : "text"}
-                  step={property.type === "float" ? "0.01" : "1"}
-                  value={value === undefined ? String(property.default_value ?? "") : String(value)}
-                  onChange={(e) => {
-                    const nextRaw = e.target.value;
-                    if (isNumber) {
-                      const parsed = Number(nextRaw);
-                      if (!Number.isFinite(parsed)) {
-                        setBrushProperties((prev) => ({ ...prev, [property.name]: 0 }));
-                        return;
-                      }
-                      const normalized = property.type === "int" ? Math.trunc(parsed) : parsed;
-                      setBrushProperties((prev) => ({ ...prev, [property.name]: normalized }));
-                      return;
-                    }
-                    setBrushProperties((prev) => ({ ...prev, [property.name]: nextRaw }));
-                  }}
+                  type="number"
+                  min={0}
+                  value={brushDurability}
+                  onChange={(e) => setBrushDurability(Math.max(0, Number(e.target.value) || 0))}
                 />
               </div>
-            );
-          })}
-        </div>
+              <div className="row">
+                <label>画笔大小</label>
+                <input
+                  type="range"
+                  min={1}
+                  max={15}
+                  step={1}
+                  value={brushSize}
+                  onChange={(e) => setBrushSize(Number(e.target.value) || 1)}
+                />
+                <span className="value-badge">{brushSize}</span>
+              </div>
+            </PanelSection>
 
-        <div className="section">
-          <strong>索引库编辑</strong>
-          <div className="row">
-            <label>版本号</label>
-            <input value={registryVersionInput} onChange={(e) => setRegistryVersionInput(e.target.value)} />
-          </div>
+            <PanelSection title="画笔属性" collapsed={sectionCollapsed.brushProps} onToggle={() => toggleSection("brushProps")}>
+              {(registry?.properties ?? []).map((property) => {
+                const value = brushProperties[property.name];
+                if (property.type === "enum") {
+                  return (
+                    <div className="row" key={property.name}>
+                      <label>{property.label}</label>
+                      <select
+                        value={typeof value === "string" ? value : String(property.default_value ?? "")}
+                        onChange={(e) => setBrushProperties((prev) => ({ ...prev, [property.name]: e.target.value }))}
+                      >
+                        {(enumOptions[property.name] ?? []).map((option) => (
+                          <option key={option} value={option}>
+                            {option}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  );
+                }
 
-          <div className="sub-title">新增材质</div>
-          <div className="row">
-            <label>标识</label>
-            <input value={newMaterialId} onChange={(e) => setNewMaterialId(e.target.value)} placeholder="例如 metal" />
-          </div>
-          <div className="row">
-            <label>名称</label>
-            <input value={newMaterialLabel} onChange={(e) => setNewMaterialLabel(e.target.value)} placeholder="例如 Metal" />
-          </div>
-          <div className="row">
-            <label>最大耐久</label>
-            <input
-              type="number"
-              min={0}
-              value={newMaterialMaxDurability}
-              onChange={(e) => setNewMaterialMaxDurability(Math.max(0, Number(e.target.value) || 0))}
-            />
-          </div>
-          <div className="row row-buttons">
-            <button onClick={() => void handleAddMaterial()}>添加材质</button>
-          </div>
+                if (property.type === "bool") {
+                  return (
+                    <div className="row" key={property.name}>
+                      <label>{property.label}</label>
+                      <input
+                        type="checkbox"
+                        checked={Boolean(value ?? property.default_value)}
+                        onChange={(e) => setBrushProperties((prev) => ({ ...prev, [property.name]: e.target.checked }))}
+                      />
+                    </div>
+                  );
+                }
 
-          <div className="sub-title">新增属性</div>
-          <div className="row">
-            <label>属性名</label>
-            <input value={newPropertyName} onChange={(e) => setNewPropertyName(e.target.value)} placeholder="例如 biome" />
-          </div>
-          <div className="row">
-            <label>属性标签</label>
-            <input value={newPropertyLabel} onChange={(e) => setNewPropertyLabel(e.target.value)} placeholder="例如 Biome" />
-          </div>
-          <div className="row">
-            <label>类型</label>
-            <select value={newPropertyType} onChange={(e) => setNewPropertyType(e.target.value as PropertyType)}>
-              <option value="int">int</option>
-              <option value="float">float</option>
-              <option value="bool">bool</option>
-              <option value="string">string</option>
-              <option value="enum">enum</option>
-            </select>
-          </div>
-          <div className="row">
-            <label>默认值</label>
-            {newPropertyType === "bool" ? (
-              <select value={newPropertyDefault || "false"} onChange={(e) => setNewPropertyDefault(e.target.value)}>
-                <option value="false">false</option>
-                <option value="true">true</option>
-              </select>
-            ) : (
-              <input
-                value={newPropertyDefault}
-                onChange={(e) => setNewPropertyDefault(e.target.value)}
-                placeholder={newPropertyType === "enum" ? "必须在枚举可选值中" : "输入默认值"}
-              />
-            )}
-          </div>
-          {newPropertyType === "enum" ? (
-            <div className="row">
-              <label>枚举值</label>
-              <input value={newPropertyEnumValues} onChange={(e) => setNewPropertyEnumValues(e.target.value)} placeholder="a,b,c" />
-            </div>
-          ) : null}
-          <div className="row row-buttons">
-            <button onClick={() => void handleAddProperty()}>添加属性</button>
-          </div>
-        </div>
+                const isNumber = property.type === "int" || property.type === "float";
+                return (
+                  <div className="row" key={property.name}>
+                    <label>{property.label}</label>
+                    <input
+                      type={isNumber ? "number" : "text"}
+                      step={property.type === "float" ? "0.01" : "1"}
+                      value={value === undefined ? String(property.default_value ?? "") : String(value)}
+                      onChange={(e) => {
+                        const nextRaw = e.target.value;
+                        if (isNumber) {
+                          const parsed = Number(nextRaw);
+                          if (!Number.isFinite(parsed)) {
+                            setBrushProperties((prev) => ({ ...prev, [property.name]: 0 }));
+                            return;
+                          }
+                          const normalized = property.type === "int" ? Math.trunc(parsed) : parsed;
+                          setBrushProperties((prev) => ({ ...prev, [property.name]: normalized }));
+                          return;
+                        }
+                        setBrushProperties((prev) => ({ ...prev, [property.name]: nextRaw }));
+                      }}
+                    />
+                  </div>
+                );
+              })}
+            </PanelSection>
 
-        <div className="section">
-          <strong>检视</strong>
-          <div className="status">{selectedCoord ? `(${selectedCoord.x}, ${selectedCoord.y})` : "未选中像素"}</div>
-          <div className="row">
-            <label>颜色</label>
-            <input value={rgbToHex(selectedPixel.color)} readOnly />
-          </div>
-          <div className="row">
-            <label>材质</label>
-            <input value={selectedPixel.material} readOnly />
-          </div>
-          <div className="row">
-            <label>耐久</label>
-            <input value={selectedPixel.durability} readOnly />
-          </div>
-          <div>
-            {selectedDynamicProps.map(([key, value]) => (
-              <span key={key} className="attr-pill">
-                {key}:{formatPropertyValue(value)}
-              </span>
-            ))}
-          </div>
-        </div>
+            <PanelSection title="索引库编辑" collapsed={sectionCollapsed.registry} onToggle={() => toggleSection("registry")}>
+              <div className="row">
+                <label>版本号</label>
+                <input value={registryVersionInput} onChange={(e) => setRegistryVersionInput(e.target.value)} />
+              </div>
+
+              <div className="sub-title">新增材质</div>
+              <div className="row">
+                <label>标识</label>
+                <input value={newMaterialId} onChange={(e) => setNewMaterialId(e.target.value)} placeholder="例如 metal" />
+              </div>
+              <div className="row">
+                <label>名称</label>
+                <input
+                  value={newMaterialLabel}
+                  onChange={(e) => setNewMaterialLabel(e.target.value)}
+                  placeholder="例如 Metal"
+                />
+              </div>
+              <div className="row">
+                <label>最大耐久</label>
+                <input
+                  type="number"
+                  min={0}
+                  value={newMaterialMaxDurability}
+                  onChange={(e) => setNewMaterialMaxDurability(Math.max(0, Number(e.target.value) || 0))}
+                />
+              </div>
+              <div className="row row-buttons">
+                <button onClick={() => void handleAddMaterial()}>添加材质</button>
+              </div>
+
+              <div className="sub-title">新增属性</div>
+              <div className="row">
+                <label>属性名</label>
+                <input value={newPropertyName} onChange={(e) => setNewPropertyName(e.target.value)} placeholder="例如 biome" />
+              </div>
+              <div className="row">
+                <label>属性标签</label>
+                <input
+                  value={newPropertyLabel}
+                  onChange={(e) => setNewPropertyLabel(e.target.value)}
+                  placeholder="例如 Biome"
+                />
+              </div>
+              <div className="row">
+                <label>类型</label>
+                <select value={newPropertyType} onChange={(e) => setNewPropertyType(e.target.value as PropertyType)}>
+                  <option value="int">int</option>
+                  <option value="float">float</option>
+                  <option value="bool">bool</option>
+                  <option value="string">string</option>
+                  <option value="enum">enum</option>
+                </select>
+              </div>
+              <div className="row">
+                <label>默认值</label>
+                {newPropertyType === "bool" ? (
+                  <select value={newPropertyDefault || "false"} onChange={(e) => setNewPropertyDefault(e.target.value)}>
+                    <option value="false">false</option>
+                    <option value="true">true</option>
+                  </select>
+                ) : (
+                  <input
+                    value={newPropertyDefault}
+                    onChange={(e) => setNewPropertyDefault(e.target.value)}
+                    placeholder={newPropertyType === "enum" ? "必须在枚举可选值中" : "输入默认值"}
+                  />
+                )}
+              </div>
+              {newPropertyType === "enum" ? (
+                <div className="row">
+                  <label>枚举值</label>
+                  <input
+                    value={newPropertyEnumValues}
+                    onChange={(e) => setNewPropertyEnumValues(e.target.value)}
+                    placeholder="a,b,c"
+                  />
+                </div>
+              ) : null}
+              <div className="row row-buttons">
+                <button onClick={() => void handleAddProperty()}>添加属性</button>
+              </div>
+            </PanelSection>
+
+            <PanelSection title="检视" collapsed={sectionCollapsed.inspect} onToggle={() => toggleSection("inspect")}>
+              <div className="status">{selectedCoord ? `(${selectedCoord.x}, ${selectedCoord.y})` : "未选中像素"}</div>
+              <div className="row">
+                <label>颜色</label>
+                <input value={rgbToHex(selectedPixel.color)} readOnly />
+              </div>
+              <div className="row">
+                <label>材质</label>
+                <input value={selectedPixel.material} readOnly />
+              </div>
+              <div className="row">
+                <label>耐久</label>
+                <input value={selectedPixel.durability} readOnly />
+              </div>
+              <div>
+                {selectedDynamicProps.map(([key, value]) => (
+                  <span key={key} className="attr-pill">
+                    {key}:{formatPropertyValue(value)}
+                  </span>
+                ))}
+              </div>
+            </PanelSection>
+          </>
+        )}
       </aside>
 
       <main className="canvas-wrap">
         <canvas
           ref={canvasRef}
+          className="world-canvas"
+          style={{ cursor: canvasCursor }}
           onContextMenu={(e) => e.preventDefault()}
           onWheel={(e) => {
             e.preventDefault();
@@ -1008,11 +1082,19 @@ export function EditorApp() {
           onPointerDown={(e) => {
             if (e.button === 1) {
               panningRef.current = true;
+              setInteractionMode("panning");
+              e.currentTarget.setPointerCapture(e.pointerId);
               e.preventDefault();
               return;
             }
             if (e.button === 0) {
+              if (!worldLoadedRef.current) {
+                setStatus("请先打开或新建地图");
+                return;
+              }
               paintingRef.current = true;
+              setInteractionMode("painting");
+              e.currentTarget.setPointerCapture(e.pointerId);
               void paintAt(e.clientX, e.clientY);
             }
           }}
@@ -1036,11 +1118,27 @@ export function EditorApp() {
               paintingRef.current = false;
               lastPaintRef.current = "";
             }
+            if (!panningRef.current && !paintingRef.current) {
+              setInteractionMode("idle");
+            }
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            }
+          }}
+          onPointerCancel={(e) => {
+            paintingRef.current = false;
+            panningRef.current = false;
+            lastPaintRef.current = "";
+            setInteractionMode("idle");
+            if (e.currentTarget.hasPointerCapture(e.pointerId)) {
+              e.currentTarget.releasePointerCapture(e.pointerId);
+            }
           }}
           onPointerLeave={() => {
             paintingRef.current = false;
             panningRef.current = false;
             lastPaintRef.current = "";
+            setInteractionMode("idle");
           }}
         />
       </main>
